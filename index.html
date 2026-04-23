@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Echo1: Final True-Call</title>
+    <title>Echo1: Zero-Gap Ultra</title>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
@@ -20,15 +20,15 @@
 <body>
 
     <div class="radio">
-        <button id="pwr" style="background:#0f0; color:#000; padding:18px 30px; border-radius:50px; font-weight:900; border:none;" onclick="boot()">INITIALIZE CALL ENGINE</button>
+        <button id="pwr" style="background:#0f0; color:#000; padding:18px 30px; border-radius:50px; font-weight:900; border:none;" onclick="boot()">ACTIVATE ZERO-GAP</button>
         <div id="ui" style="display:none;">
             <div class="screen">
                 <div style="font-size: 0.8rem; display: flex; justify-content: space-between;">
                     <span id="stat">STABLE</span>
                     <span id="timer">00:00</span>
                 </div>
-                <div id="log" style="font-size:0.5rem; text-align:left; flex-grow:1; overflow:hidden; padding: 10px 0;"></div>
-                <div style="font-size: 0.6rem; font-weight: 900;">LIVE VOICE PIPE:</div>
+                <div id="log" style="font-size:0.55rem; text-align:left; flex-grow:1; overflow:hidden; padding: 10px 0;"></div>
+                <div style="font-size: 0.6rem; font-weight: 900;">HIGH-SPEED STREAM:</div>
                 <div class="meter"><div id="fill"></div></div>
             </div>
             <button id="ptt">TALK</button>
@@ -42,9 +42,9 @@
             projectId: "walky-taky-6b118"
         };
         firebase.initializeApp(config);
-        const db = firebase.database().ref('call_v23');
+        const db = firebase.database().ref('zerogap_v21');
         
-        let audioCtx, isTalking = false, scheduledTime = 0;
+        let audioCtx, isTalking = false, nextStartTime = 0;
 
         async function boot() {
             document.getElementById('pwr').style.display = 'none';
@@ -52,69 +52,60 @@
             
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
                 const source = audioCtx.createMediaStreamSource(stream);
-                const processor = audioCtx.createScriptProcessor(1024, 1, 1);
-                
+                const processor = audioCtx.createScriptProcessor(1024, 1, 1); // Smallest possible buffer for real-time
+
                 source.connect(processor);
                 processor.connect(audioCtx.destination);
 
                 processor.onaudioprocess = (e) => {
                     if (isTalking) {
                         const input = e.inputBuffer.getChannelData(0);
-                        const p = new Int16Array(input.length);
-                        for(let i=0; i<input.length; i++) p[i] = input[i] * 0x7FFF;
-                        // Atomic update prevents connection loss if DB was cleared
-                        db.update({ "p": btoa(String.fromCharCode(...new Uint16Array(p.buffer))) });
+                        // Convert to Int16 to save 50% bandwidth (Stops the cutting)
+                        const compressed = new Int16Array(input.length);
+                        for(let i=0; i<input.length; i++) compressed[i] = input[i] * 0x7FFF;
+                        db.child('stream').set(btoa(String.fromCharCode.apply(null, new Uint16Array(compressed.buffer))));
                     }
                 };
 
-                // Self-healing listener
-                db.child('p').on('value', (snap) => {
+                db.child('stream').on('value', (snap) => {
                     const data = snap.val();
                     if (data && !isTalking) {
-                        const bin = atob(data);
-                        const uint = new Uint16Array(bin.length);
-                        for(let i=0; i<bin.length; i++) uint[i] = bin.charCodeAt(i);
-                        const float = new Float32Array(new Int16Array(uint.buffer)).map(v => v/0x7FFF);
-                        play(float);
+                        const binary = atob(data);
+                        const bytes = new Uint16Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                        const samples = new Float32Array(new Int16Array(bytes.buffer)).map(v => v / 0x7FFF);
+                        play(samples);
                     }
                 });
 
                 document.getElementById('ptt').style.display = 'block';
-            } catch (err) { alert("Enable Mic permissions for Call."); }
+            } catch (err) { alert("Mic required for Real-Time."); }
         }
 
         function play(data) {
-            const buffer = audioCtx.createBuffer(1, data.length, 16000);
-            buffer.getChannelData(0).set(data);
-            const source = audioCtx.createBufferSource();
-            source.buffer = buffer;
-
-            // Soft-clipping gain for clear voice
-            const gainNode = audioCtx.createGain();
-            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-            gainNode.gain.linearRampToValueAtTime(1, audioCtx.currentTime + 0.005);
-            
-            source.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
+            const b = audioCtx.createBuffer(1, data.length, 16000);
+            b.getChannelData(0).set(data);
+            const s = audioCtx.createBufferSource();
+            s.buffer = b;
+            s.connect(audioCtx.destination);
 
             const now = audioCtx.currentTime;
-            // 0.1s buffer hides network jitter without noticeable delay
-            if (scheduledTime < now) scheduledTime = now + 0.1;
+            // The "Magic" delay: 0.08s buffer to smooth over network hiccups
+            if (nextStartTime < now) nextStartTime = now + 0.08;
+            s.start(nextStartTime);
+            nextStartTime += b.duration;
             
-            source.start(scheduledTime);
-            scheduledTime += (buffer.duration - 0.002);
-            
-            let sum = 0; for(let i=0; i<data.length; i++) sum += Math.abs(data[i]);
+            // Visualizer
+            let sum = 0;
+            for(let i=0; i<data.length; i++) sum += Math.abs(data[i]);
             document.getElementById('fill').style.width = Math.min(100, (sum/data.length)*1500) + "%";
         }
 
         const ptt = document.getElementById('ptt');
-        const press = (e) => { e.preventDefault(); isTalking = true; audioCtx.resume(); };
-        const release = () => { isTalking = false; scheduledTime = 0; };
-        ptt.onmousedown = ptt.ontouchstart = press;
-        ptt.onmouseup = ptt.ontouchend = release;
+        ptt.onmousedown = ptt.ontouchstart = (e) => { e.preventDefault(); isTalking = true; audioCtx.resume(); };
+        ptt.onmouseup = ptt.ontouchend = () => { isTalking = false; };
         window.onclick = () => { if(audioCtx) audioCtx.resume(); };
     </script>
 </body>
