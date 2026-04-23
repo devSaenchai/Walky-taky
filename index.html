@@ -12,7 +12,7 @@
         body { background: var(--radio-dark); color: #fff; font-family: 'Courier New', monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; touch-action: none; }
         .walkie-talkie-body { background: #333; width: 280px; padding: 30px; border-radius: 40px; border: 4px solid #222; box-shadow: 0 15px 0 #111; text-align: center; position: relative; }
         .antenna { width: 25px; height: 50px; background: #222; position: absolute; top: -50px; left: 40px; border-radius: 5px 5px 0 0; }
-        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 45px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1rem; text-transform: uppercase; }
+        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1rem; text-transform: uppercase; line-height: 1.2; }
         #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#555, #222); cursor: pointer; color: white; font-weight: bold; font-size: 1rem; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 6px 0 #111; user-select: none; }
         #ptt-btn:active { background: radial-gradient(#f22, #800); transform: translateY(4px); box-shadow: 0 2px 0 #111; }
         .power-btn { background: #0f0; color: #000; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 1rem; box-shadow: 0 4px 0 #080; }
@@ -71,12 +71,16 @@
             this.classList.add('hidden');
             document.getElementById('ui-container').classList.remove('hidden');
             
+            // 1. Initialize Audio Engine
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
             try {
+                // 2. Capture Microphone
                 myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 myStream.getAudioTracks()[0].enabled = false;
 
+                // 3. Setup PeerJS with STUN servers
                 peer = new Peer({
                     config: {
                         'iceServers': [
@@ -91,12 +95,14 @@
                     const myRef = db.push(id);
                     myRef.onDisconnect().remove();
 
+                    // Monitor total peers
                     db.on('value', (snapshot) => {
                         const data = snapshot.val();
                         const count = data ? Object.keys(data).length : 0;
                         document.getElementById('peer-count').innerText = "Peers: " + count;
                     });
 
+                    // Call others
                     db.on('child_added', (snap) => {
                         const userId = snap.val();
                         if(userId !== id && !peerList.has(userId)) {
@@ -107,6 +113,7 @@
                     });
                 });
 
+                // 4. Handle incoming calls
                 peer.on('call', (call) => {
                     call.answer(myStream);
                     call.on('stream', (remote) => playStream(remote));
@@ -114,17 +121,30 @@
 
             } catch (err) {
                 document.getElementById('status').innerText = "MIC ERROR";
+                alert("Please enable microphone access.");
             }
         };
 
+        // FORCE PLAYBACK LOGIC
         function playStream(stream) {
-            const audio = new Audio();
+            const audio = document.createElement('audio');
             audio.srcObject = stream;
             audio.autoplay = true;
-            audio.playsInline = true;
+            audio.playsInline = true; 
             document.body.appendChild(audio); 
             audio.style.display = "none";
-            audio.play().catch(e => console.log("Audio block:", e));
+            
+            const promise = audio.play();
+            if (promise !== undefined) {
+                promise.catch(error => {
+                    console.error("Autoplay prevented:", error);
+                    document.getElementById('status').innerText = "TAP SCREEN";
+                    window.addEventListener('click', () => {
+                        audio.play();
+                        document.getElementById('status').innerText = "READY";
+                    }, { once: true });
+                });
+            }
         }
 
         const ptt = document.getElementById('ptt-btn');
@@ -134,7 +154,6 @@
         const startTalking = (e) => {
             if(e) e.preventDefault();
             if(!myStream) return;
-            if(audioCtx.state === 'suspended') audioCtx.resume();
             playBeep(880, 'sine', 0.1);
             myStream.getAudioTracks()[0].enabled = true;
             led.classList.add('on');
@@ -150,6 +169,7 @@
             statusDisplay.innerText = "READY";
         };
 
+        // Event listeners for Desktop & Mobile
         ptt.addEventListener('mousedown', startTalking);
         ptt.addEventListener('mouseup', stopTalking);
         ptt.addEventListener('touchstart', startTalking, {passive: false});
