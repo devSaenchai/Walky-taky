@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Walky-Taky | by Saenchai</title>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <style>
+        :root { --radio-body: #1e1e1e; --screen-bg: #8ba870; --accent: #ffcc00; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        /* Fix for Notch and Navbar overlaps */
+        html, body { 
+            height: 100%; 
+            margin: 0; 
+            padding: 0; 
+            background: #000; 
+            overflow: hidden; 
+        }
+
+        body { 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-family: 'Courier New', monospace;
+            /* Safe area padding for iPhone/Android */
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        .walkie-talkie { 
+            background: var(--radio-body); 
+            width: 100%; 
+            max-width: 400px; 
+            height: 100%; /* Uses 100% of the available safe area */
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            position: relative; 
+            border-left: 8px solid #111;
+            border-right: 8px solid #111;
+        }
+
+        /* Simplified antenna to stay within screen bounds */
+        .antenna-nub { width: 40px; height: 15px; background: #111; margin: -20px auto 10px auto; border-radius: 5px 5px 0 0; }
+
+        .lcd-frame { 
+            background: #000; 
+            padding: 8px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 0 #333; 
+        }
+
+        .lcd-screen { 
+            background: var(--screen-bg); 
+            color: #050505; 
+            padding: 10px; 
+            height: 220px; 
+            display: flex; 
+            flex-direction: column; 
+            border: 4px inset rgba(0,0,0,0.5); 
+        }
+
+        .header { 
+            font-size: 0.7rem; 
+            font-weight: 900; 
+            border-bottom: 2px solid rgba(0,0,0,0.3); 
+            padding-bottom: 5px; 
+            display: flex; 
+            justify-content: space-between; 
+        }
+
+        #log { 
+            font-size: 0.65rem; 
+            flex-grow: 1; 
+            overflow-y: auto; 
+            margin: 8px 0; 
+            scrollbar-width: thin; 
+        }
+
+        .branding { font-size: 0.55rem; text-align: center; font-weight: 900; letter-spacing: 1px; }
+
+        .controls { 
+            flex-grow: 1; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+        }
+
+        #ptt { 
+            width: 180px; 
+            height: 180px; 
+            border-radius: 50%; 
+            border: 12px solid #000; 
+            background: radial-gradient(#444, #222); 
+            color: white; 
+            font-weight: 900; 
+            font-size: 1.4rem; 
+            box-shadow: 0 10px 0 #000; 
+            transition: 0.05s; 
+        }
+
+        #ptt:active:not(:disabled) { 
+            transform: translateY(6px); 
+            box-shadow: 0 4px 0 #000; 
+            background: radial-gradient(#f00, #900); 
+        }
+
+        #ptt:disabled { filter: grayscale(1); opacity: 0.3; }
+
+        .meter { height: 8px; background: rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden; margin-bottom: 5px; }
+        #fill { height: 100%; width: 0%; background: #000; transition: width 0.05s; }
+        .blink { animation: flash 1s infinite; }
+        @keyframes flash { 50% { opacity: 0.3; } }
+    </style>
+</head>
+<body>
+
+<div class="walkie-talkie">
+    <div class="antenna-nub"></div>
+    <div class="lcd-frame">
+        <div class="lcd-screen">
+            <div class="header">
+                <span id="status">OFFLINE</span>
+                <span>SAFE-UI</span>
+            </div>
+            <div id="log">SCREEN BOUNDS CHECK...<br>READY.</div>
+            <div class="meter"><div id="fill"></div></div>
+            <div class="branding">WALKY-TAKY BY SAENCHAI</div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="ptt" disabled>PTT</button>
+        <p style="font-size: 0.6rem; color: #555; margin-top: 15px;">FULL SCREEN ACTIVE</p>
+    </div>
+    
+    <div style="text-align: center; padding-bottom: 10px;">
+        <button id="pwr" style="background:var(--accent); border:none; padding:15px 30px; border-radius:10px; font-weight:bold; width: 80%;" onclick="boot()">POWER ON</button>
+    </div>
+</div>
+
+<script>
+    const config = {
+        apiKey: "AIzaSyBRZ_E78l5EDRAgyHvE81aZAg9XWZySNrE",
+        databaseURL: "https://walky-taky-6b118-default-rtdb.firebaseio.com",
+        projectId: "walky-taky-6b118"
+    };
+    firebase.initializeApp(config);
+    const db = firebase.database().ref('walkytaky_saenchai');
+    
+    let audioCtx, isTalking = false, currentSlice = [], nextStartTime = 0;
+    const ptt = document.getElementById('ptt');
+    const logBox = document.getElementById('log');
+
+    function addLog(m) {
+        logBox.innerHTML += `[${new Date().toLocaleTimeString([], {hour12:false, minute:'2-digit', second:'2-digit'})}] ${m}<br>`;
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function beep(freq, duration) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        osc.start(); osc.stop(audioCtx.currentTime + duration);
+    }
+
+    async function boot() {
+        document.getElementById('pwr').style.display = 'none';
+        addLog("Syncing Viewport...");
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+            const source = audioCtx.createMediaStreamSource(stream);
+            const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+            
+            source.connect(processor); processor.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+                if (isTalking) {
+                    const input = e.inputBuffer.getChannelData(0);
+                    currentSlice.push(...Array.from(input));
+                    if (currentSlice.length >= 4000) {
+                        db.child('voice').set(btoa(JSON.stringify(currentSlice)));
+                        currentSlice = [];
+                    }
+                }
+            };
+
+            db.on('value', (snap) => {
+                const val = snap.val();
+                if (!val) return;
+
+                if (val.lockedBy && val.lockedBy !== audioCtx.baseLatency) {
+                    ptt.disabled = true;
+                    document.getElementById('status').innerText = "BUSY";
+                    document.getElementById('status').classList.add('blink');
+                } else {
+                    ptt.disabled = false;
+                    document.getElementById('status').innerText = "READY";
+                    document.getElementById('status').classList.remove('blink');
+                }
+
+                if (val.voice && !isTalking) {
+                    const raw = JSON.parse(atob(val.voice));
+                    play(new Float32Array(raw));
+                }
+            });
+
+            addLog("Frequency Locked.");
+        } catch (err) { addLog("Error: Mic Denied"); }
+    }
+
+    function play(data) {
+        const b = audioCtx.createBuffer(1, data.length, 16000);
+        b.getChannelData(0).set(data);
+        const s = audioCtx.createBufferSource();
+        s.buffer = b; s.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+        if (nextStartTime < now) nextStartTime = now + 0.05;
+        s.start(nextStartTime);
+        nextStartTime += b.duration;
+        
+        let sum = 0; for(let i=0; i<data.length; i++) sum += Math.abs(data[i]);
+        document.getElementById('fill').style.width = Math.min(100, (sum/data.length)*1500) + "%";
+    }
+
+    ptt.onmousedown = ptt.ontouchstart = (e) => {
+        e.preventDefault();
+        if (ptt.disabled) return;
+        isTalking = true;
+        beep(880, 0.1); 
+        db.child('lockedBy').set(audioCtx.baseLatency);
+        addLog("TX ACTIVE");
+    };
+
+    ptt.onmouseup = ptt.ontouchend = () => {
+        if (!isTalking) return;
+        setTimeout(() => {
+            isTalking = false;
+            db.child('lockedBy').remove();
+            beep(440, 0.1); 
+            addLog("TX ENDED");
+        }, 300);
+    };
+</script>
+</body>
+</html>
