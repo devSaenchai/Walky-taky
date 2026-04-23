@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Walky-Taky | Echo-1</title>
+    <title>Walky-Taky | by Saenchai</title>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
         :root { --radio-body: #1e1e1e; --screen-bg: #8ba870; --accent: #ffcc00; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         
-        /* Full-screen logic for Android/iPhone */
+        /* Fix for Notch and Navbar overlaps */
         html, body { 
             height: 100%; 
             margin: 0; 
@@ -24,6 +24,7 @@
             align-items: center; 
             justify-content: center; 
             font-family: 'Courier New', monospace;
+            /* Safe area padding for iPhone/Android */
             padding-top: env(safe-area-inset-top);
             padding-bottom: env(safe-area-inset-bottom);
         }
@@ -32,7 +33,7 @@
             background: var(--radio-body); 
             width: 100%; 
             max-width: 400px; 
-            height: 100%; 
+            height: 100%; /* Uses 100% of the available safe area */
             padding: 20px; 
             display: flex; 
             flex-direction: column; 
@@ -41,6 +42,7 @@
             border-right: 8px solid #111;
         }
 
+        /* Simplified antenna to stay within screen bounds */
         .antenna-nub { width: 40px; height: 15px; background: #111; margin: -20px auto 10px auto; border-radius: 5px 5px 0 0; }
 
         .lcd-frame { 
@@ -122,9 +124,9 @@
         <div class="lcd-screen">
             <div class="header">
                 <span id="status">OFFLINE</span>
-                <span>ECHO-1</span>
+                <span>SAFE-UI</span>
             </div>
-            <div id="log">SYSTEM READY...<br>INITIALIZING ECHO-1 PROTOCOL.</div>
+            <div id="log">SCREEN BOUNDS CHECK...<br>READY.</div>
             <div class="meter"><div id="fill"></div></div>
             <div class="branding">WALKY-TAKY BY SAENCHAI</div>
         </div>
@@ -132,7 +134,7 @@
 
     <div class="controls">
         <button id="ptt" disabled>PTT</button>
-        <p style="font-size: 0.6rem; color: #555; margin-top: 15px;">HOLD TO TALK</p>
+        <p style="font-size: 0.6rem; color: #555; margin-top: 15px;">FULL SCREEN ACTIVE</p>
     </div>
     
     <div style="text-align: center; padding-bottom: 10px;">
@@ -147,9 +149,7 @@
         projectId: "walky-taky-6b118"
     };
     firebase.initializeApp(config);
-    
-    // Updated Database Node to echo1
-    const db = firebase.database().ref('echo1');
+    const db = firebase.database().ref('walkytaky_saenchai');
     
     let audioCtx, isTalking = false, currentSlice = [], nextStartTime = 0;
     const ptt = document.getElementById('ptt');
@@ -171,7 +171,7 @@
 
     async function boot() {
         document.getElementById('pwr').style.display = 'none';
-        addLog("Syncing Echo-1 Link...");
+        addLog("Syncing Viewport...");
         try {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
