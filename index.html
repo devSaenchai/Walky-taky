@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Echo1 Walkie-Talkie</title>
+    <title>Echo1 Pro</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
@@ -12,14 +12,14 @@
         body { background: var(--radio-dark); color: #fff; font-family: 'Courier New', monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; touch-action: none; }
         .walkie-talkie-body { background: #333; width: 280px; padding: 30px; border-radius: 40px; border: 4px solid #222; box-shadow: 0 15px 0 #111; text-align: center; position: relative; }
         .antenna { width: 25px; height: 50px; background: #222; position: absolute; top: -50px; left: 40px; border-radius: 5px 5px 0 0; }
-        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1rem; text-transform: uppercase; }
+        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.9rem; text-transform: uppercase; }
         #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#555, #222); cursor: pointer; color: white; font-weight: bold; font-size: 1rem; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 6px 0 #111; user-select: none; }
         #ptt-btn:active { background: radial-gradient(#f22, #800); transform: translateY(4px); box-shadow: 0 2px 0 #111; }
-        .power-btn { background: #0f0; color: #000; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 1rem; box-shadow: 0 4px 0 #080; }
+        .power-btn { background: #0f0; color: #000; border: none; padding: 15px 30px; border-radius: 50px; cursor: pointer; font-weight: bold; font-size: 1.2rem; box-shadow: 0 4px 0 #080; }
         .hidden { display: none; }
         .led { width: 12px; height: 12px; border-radius: 50%; background: #200; margin: 0 auto 15px; border: 2px solid #111; }
         .led.on { background: var(--led-red); box-shadow: 0 0 10px var(--led-red); }
-        #wave { font-size: 0.6rem; color: #333; height: 10px; }
+        #v-meter { font-size: 1.2rem; color: #333; margin-top: 5px; height: 20px; letter-spacing: 2px; font-weight: 900; }
     </style>
 </head>
 <body>
@@ -30,13 +30,13 @@
         
         <div id="ui-container" class="hidden">
             <div id="status-box" class="screen">
-                <div id="status">LOGGING IN...</div>
-                <div id="peer-count" style="font-size: 0.7rem;">Peers: 0</div>
-                <div id="wave">---------</div>
+                <div id="status">READY</div>
+                <div id="peer-count" style="font-size: 0.7rem;">PEERS: 0</div>
+                <div id="v-meter">----</div>
             </div>
             <div id="tx-led" class="led"></div>
             <button id="ptt-btn">PUSH<br>TO TALK</button>
-            <p style="font-size: 12px; color: #666; margin-top: 20px; letter-spacing: 2px;">ECHO1 RADIO</p>
+            <p style="font-size: 10px; color: #666; margin-top: 20px; letter-spacing: 2px;">ECHO1 RADIO v6.0</p>
         </div>
     </div>
 
@@ -73,13 +73,17 @@
             this.classList.add('hidden');
             document.getElementById('ui-container').classList.remove('hidden');
             
+            // Critical: Initialize AudioContext on user gesture
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if (audioCtx.state === 'suspended') audioCtx.resume();
+            if(audioCtx.state === 'suspended') audioCtx.resume();
 
             try {
-                // High-quality audio constraints for mobile
                 myStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
+                    audio: { 
+                        echoCancellation: true, 
+                        noiseSuppression: true,
+                        autoGainControl: true 
+                    } 
                 });
                 myStream.getAudioTracks()[0].enabled = false;
 
@@ -88,13 +92,12 @@
                 });
                 
                 peer.on('open', (id) => {
-                    document.getElementById('status').innerText = "READY";
                     const myRef = db.push(id);
                     myRef.onDisconnect().remove();
 
                     db.on('value', (snap) => {
                         const count = snap.val() ? Object.keys(snap.val()).length : 0;
-                        document.getElementById('peer-count').innerText = "Peers: " + count;
+                        document.getElementById('peer-count').innerText = "PEERS: " + count;
                     });
 
                     db.on('child_added', (snap) => {
@@ -102,14 +105,14 @@
                         if(userId !== id && !peerList.has(userId)) {
                             peerList.add(userId);
                             const call = peer.call(userId, myStream);
-                            call.on('stream', (remote) => playStream(remote));
+                            call.on('stream', (remote) => pipeAudio(remote));
                         }
                     });
                 });
 
                 peer.on('call', (call) => {
                     call.answer(myStream);
-                    call.on('stream', (remote) => playStream(remote));
+                    call.on('stream', (remote) => pipeAudio(remote));
                 });
 
             } catch (err) {
@@ -117,40 +120,33 @@
             }
         };
 
-        function playStream(stream) {
-            // Visual Wave Logic
-            const visualizer = audioCtx.createAnalyzer();
+        function pipeAudio(stream) {
+            // New Method: Create a MediaStreamSource and connect it to the AudioContext Destination
             const source = audioCtx.createMediaStreamSource(stream);
-            source.connect(visualizer);
+            const analyzer = audioCtx.createAnalyzer();
+            const volumeControl = audioCtx.createGain();
             
-            const dataArray = new Uint8Array(visualizer.frequencyBinCount);
-            function updateWave() {
-                visualizer.getByteFrequencyData(dataArray);
-                const volume = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                if(volume > 10) document.getElementById('wave').innerText = "🔊 ~~~~~~";
-                else document.getElementById('wave').innerText = "---------";
-                requestAnimationFrame(updateWave);
-            }
-            updateWave();
+            // Set volume to 200% to ensure it's heard
+            volumeControl.gain.value = 2.0; 
 
-            // Actual Audio Output
-            const audio = new Audio();
-            audio.srcObject = stream;
-            audio.autoplay = true;
-            audio.playsInline = true;
-            document.body.appendChild(audio); 
-            
-            // iPhone Safari needs a click to start the audio if it was blocked
-            const playPromise = audio.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(() => {
-                    document.getElementById('status').innerText = "TAP TO UNMUTE";
-                    window.addEventListener('touchstart', () => {
-                        audio.play();
-                        document.getElementById('status').innerText = "READY";
-                    }, { once: true });
-                });
+            source.connect(analyzer);
+            analyzer.connect(volumeControl);
+            volumeControl.connect(audioCtx.destination);
+
+            // Visual monitor
+            const dataArray = new Uint8Array(analyzer.frequencyBinCount);
+            function updateMeter() {
+                analyzer.getByteFrequencyData(dataArray);
+                let avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                document.getElementById('v-meter').innerText = avg > 3 ? "░▒▓█▓▒░" : "----";
+                requestAnimationFrame(updateMeter);
             }
+            updateMeter();
+
+            // Mobile Failsafe: Browsers need a second tap sometimes to enable the audio destination
+            document.addEventListener('touchstart', () => {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+            }, { once: false });
         }
 
         const ptt = document.getElementById('ptt-btn');
@@ -160,17 +156,20 @@
         const startTalking = (e) => {
             if(e) e.preventDefault();
             if(!myStream) return;
-            playBeep(880, 'sine', 0.1);
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            
+            playBeep(800, 'sine', 0.05);
             myStream.getAudioTracks()[0].enabled = true;
             led.classList.add('on');
-            statusDisplay.innerText = "TRANSMITTING";
+            statusDisplay.innerText = "TALKING...";
         };
 
         const stopTalking = (e) => {
             if(e) e.preventDefault();
             if(!myStream) return;
+            
             myStream.getAudioTracks()[0].enabled = false;
-            playBeep(440, 'triangle', 0.15);
+            playBeep(400, 'triangle', 0.1);
             led.classList.remove('on');
             statusDisplay.innerText = "READY";
         };
