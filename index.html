@@ -3,20 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Walky-Taky</title>
+    <title>Echo1 Walkie-Talkie</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
         :root { --radio-green: #94ad94; --radio-dark: #1a1a1a; --led-red: #ff0000; }
-        body { background: var(--radio-dark); color: #fff; font-family: 'Courier New', monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        body { background: var(--radio-dark); color: #fff; font-family: 'Courier New', monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; touch-action: none; }
         .walkie-talkie-body { background: #333; width: 280px; padding: 30px; border-radius: 40px; border: 4px solid #222; box-shadow: 0 15px 0 #111; text-align: center; position: relative; }
         .antenna { width: 25px; height: 50px; background: #222; position: absolute; top: -50px; left: 40px; border-radius: 5px 5px 0 0; }
-        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 45px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; text-transform: uppercase; }
-        #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#555, #222); cursor: pointer; color: white; font-weight: bold; font-size: 1rem; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 6px 0 #111; }
-        #ptt-btn:active { background: radial-gradient(#d00, #800); transform: translateY(4px); box-shadow: 0 2px 0 #111; }
+        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 45px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1rem; text-transform: uppercase; }
+        #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#555, #222); cursor: pointer; color: white; font-weight: bold; font-size: 1rem; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 6px 0 #111; user-select: none; }
+        #ptt-btn:active { background: radial-gradient(#f22, #800); transform: translateY(4px); box-shadow: 0 2px 0 #111; }
         .power-btn { background: #0f0; color: #000; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 1rem; box-shadow: 0 4px 0 #080; }
-        .power-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #080; }
         .hidden { display: none; }
         .led { width: 12px; height: 12px; border-radius: 50%; background: #200; margin: 0 auto 15px; border: 2px solid #111; }
         .led.on { background: var(--led-red); box-shadow: 0 0 10px var(--led-red); }
@@ -29,76 +28,85 @@
         <button id="start-btn" class="power-btn">SYSTEM START</button>
         
         <div id="ui-container" class="hidden">
-            <div id="status" class="screen">LOGGING IN...</div>
+            <div id="status-box" class="screen">
+                <div id="status">LOGGING IN...</div>
+                <div id="peer-count" style="font-size: 0.7rem; margin-top: 5px;">Peers: 0</div>
+            </div>
             <div id="tx-led" class="led"></div>
             <button id="ptt-btn">PUSH<br>TO TALK</button>
-            <p style="font-size: 12px; color: #666; margin-top: 20px; letter-spacing: 2px;">WALKY-TAKY 6B118</p>
+            <p style="font-size: 12px; color: #666; margin-top: 20px; letter-spacing: 2px;">ECHO1 RADIO</p>
         </div>
     </div>
 
     <script>
-        // --- YOUR FIREBASE CREDENTIALS APPLIED ---
         const firebaseConfig = {
-            apiKey: "AIzaSyBRZ_E78l5EDRAgyHvE81aZAg9XWZySNrE",
-            authDomain: "walky-taky-6b118.firebaseapp.com",
-            projectId: "walky-taky-6b118",
-            storageBucket: "walky-taky-6b118.firebasestorage.app",
-            messagingSenderId: "822437639384",
-            appId: "1:822437639384:web:4112a27eb316d9e24693ad"
+          apiKey: "AIzaSyBRZ_E78l5EDRAgyHvE81aZAg9XWZySNrE",
+          authDomain: "walky-taky-6b118.firebaseapp.com",
+          databaseURL: "https://walky-taky-6b118-default-rtdb.firebaseio.com",
+          projectId: "walky-taky-6b118",
+          storageBucket: "walky-taky-6b118.firebasestorage.app",
+          messagingSenderId: "822437639384",
+          appId: "1:822437639384:web:4112a27eb316d9e24693ad"
         };
 
-        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database().ref('channel_01');
 
         let peer, myStream, audioCtx;
+        let peerList = new Set();
         
-        // Sound Generator (The "Beeps")
         function playBeep(freq, type, duration) {
+            if(!audioCtx) return;
             const osc = audioCtx.createOscillator();
             const g = audioCtx.createGain();
             osc.type = type;
             osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            g.gain.setValueAtTime(0.05, audioCtx.currentTime);
             g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
             osc.connect(g); g.connect(audioCtx.destination);
             osc.start(); osc.stop(audioCtx.currentTime + duration);
         }
 
-        // Power On Sequence
         document.getElementById('start-btn').onclick = async function() {
             this.classList.add('hidden');
             document.getElementById('ui-container').classList.remove('hidden');
             
-            // Start Audio Engine
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             
             try {
-                // Get Microphone Access
                 myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                myStream.getAudioTracks()[0].enabled = false; // Muted by default
+                myStream.getAudioTracks()[0].enabled = false;
 
-                // Initialize PeerJS
-                peer = new Peer();
+                peer = new Peer({
+                    config: {
+                        'iceServers': [
+                            { url: 'stun:stun.l.google.com:19302' },
+                            { url: 'stun:stun1.l.google.com:19302' }
+                        ]
+                    }
+                });
                 
                 peer.on('open', (id) => {
-                    document.getElementById('status').innerText = "ONLINE / READY";
-                    
-                    // Register presence in Firebase
+                    document.getElementById('status').innerText = "READY";
                     const myRef = db.push(id);
                     myRef.onDisconnect().remove();
 
-                    // Listen for other users joining
+                    db.on('value', (snapshot) => {
+                        const data = snapshot.val();
+                        const count = data ? Object.keys(data).length : 0;
+                        document.getElementById('peer-count').innerText = "Peers: " + count;
+                    });
+
                     db.on('child_added', (snap) => {
                         const userId = snap.val();
-                        if(userId !== id) {
+                        if(userId !== id && !peerList.has(userId)) {
+                            peerList.add(userId);
                             const call = peer.call(userId, myStream);
                             call.on('stream', (remote) => playStream(remote));
                         }
                     });
                 });
 
-                // Answer incoming calls
                 peer.on('call', (call) => {
                     call.answer(myStream);
                     call.on('stream', (remote) => playStream(remote));
@@ -106,44 +114,46 @@
 
             } catch (err) {
                 document.getElementById('status').innerText = "MIC ERROR";
-                console.error(err);
             }
         };
 
         function playStream(stream) {
             const audio = new Audio();
             audio.srcObject = stream;
-            audio.play();
+            audio.autoplay = true;
+            audio.playsInline = true;
+            document.body.appendChild(audio); 
+            audio.style.display = "none";
+            audio.play().catch(e => console.log("Audio block:", e));
         }
 
         const ptt = document.getElementById('ptt-btn');
         const led = document.getElementById('tx-led');
         const statusDisplay = document.getElementById('status');
 
-        // PTT Functions
-        const startTalking = () => {
+        const startTalking = (e) => {
+            if(e) e.preventDefault();
             if(!myStream) return;
             if(audioCtx.state === 'suspended') audioCtx.resume();
-            playBeep(880, 'sine', 0.1); // High Start Beep
+            playBeep(880, 'sine', 0.1);
             myStream.getAudioTracks()[0].enabled = true;
             led.classList.add('on');
             statusDisplay.innerText = "TRANSMITTING";
         };
 
-        const stopTalking = () => {
+        const stopTalking = (e) => {
+            if(e) e.preventDefault();
             if(!myStream) return;
             myStream.getAudioTracks()[0].enabled = false;
-            playBeep(440, 'triangle', 0.15); // Low "Over" Beep
+            playBeep(440, 'triangle', 0.15);
             led.classList.remove('on');
-            statusDisplay.innerText = "ONLINE / READY";
+            statusDisplay.innerText = "READY";
         };
 
-        // Support for both Desktop and Mobile touch
         ptt.addEventListener('mousedown', startTalking);
         ptt.addEventListener('mouseup', stopTalking);
-        ptt.addEventListener('touchstart', (e) => { e.preventDefault(); startTalking(); });
-        ptt.addEventListener('touchend', (e) => { e.preventDefault(); stopTalking(); });
-
+        ptt.addEventListener('touchstart', startTalking, {passive: false});
+        ptt.addEventListener('touchend', stopTalking, {passive: false});
     </script>
 </body>
 </html>
