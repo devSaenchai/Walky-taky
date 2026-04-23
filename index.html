@@ -3,35 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Echo1 Pro: Vi-Jio Link</title>
+    <title>Echo1 Global Relay</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
         :root { --radio-green: #94ad94; --radio-dark: #1a1a1a; }
         body { background: var(--radio-dark); color: #fff; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; touch-action: none; overflow: hidden; }
-        .radio-body { background: #333; width: 300px; padding: 25px; border-radius: 40px; border: 4px solid #222; text-align: center; }
+        .radio-body { background: #333; width: 300px; padding: 25px; border-radius: 40px; border: 4px solid #222; text-align: center; box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
         .screen { background: var(--radio-green); color: #1a1a1a; padding: 10px; border-radius: 10px; font-weight: bold; margin-bottom: 15px; border: 4px inset rgba(0,0,0,0.2); min-height: 180px; display: flex; flex-direction: column; }
-        #log-window { flex-grow: 1; font-size: 0.6rem; text-align: left; overflow-y: auto; background: rgba(0,0,0,0.05); padding: 5px; margin-top: 5px; max-height: 90px; }
+        #log { flex-grow: 1; font-size: 0.65rem; text-align: left; overflow-y: auto; background: rgba(0,0,0,0.05); padding: 5px; margin-top: 5px; max-height: 90px; }
         #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 8px solid #222; background: radial-gradient(#555, #222); color: white; font-weight: bold; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 5px 0 #111; user-select: none; display: none; }
         #ptt-btn.active { background: radial-gradient(#f22, #800); transform: translateY(3px); box-shadow: 0 2px 0 #111; }
-        .btn-pwr { background: #0f0; color: #000; border: none; padding: 15px 30px; border-radius: 50px; cursor: pointer; font-weight: bold; }
+        .power-on { background: #0f0; color: #000; border: none; padding: 15px 30px; border-radius: 50px; cursor: pointer; font-weight: bold; }
+        .meter { height: 8px; background: rgba(0,0,0,0.1); border-radius: 4px; margin-top: 5px; overflow: hidden; }
+        .meter-fill { height: 100%; width: 0%; background: #1a1a1a; transition: width 0.1s; }
     </style>
 </head>
 <body>
 
     <div class="radio-body">
-        <button id="start-btn" class="btn-pwr">START VI-JIO LINK</button>
+        <button id="pwr" class="power-on">ACTIVATE GLOBAL TUNNEL</button>
         <div id="ui" style="display:none;">
             <div class="screen">
                 <div style="font-size: 0.7rem; display: flex; justify-content: space-between;">
-                    <span id="status">OFFLINE</span>
+                    <span id="stat">INIT...</span>
                     <span id="timer">00:00</span>
                 </div>
-                <div id="peer-count" style="font-size: 0.8rem; margin: 5px 0;">PEERS: 0</div>
-                <div id="log-window"></div>
+                <div id="log"></div>
+                <div style="font-size: 0.6rem; margin-top: 10px; opacity: 0.7;">RX SIGNAL</div>
+                <div class="meter"><div id="fill" class="meter-fill"></div></div>
             </div>
-            <button id="ptt-btn">HOLD TO TALK</button>
+            <button id="ptt-btn">PUSH TO TALK</button>
         </div>
     </div>
 
@@ -47,103 +50,115 @@
         };
 
         firebase.initializeApp(firebaseConfig);
-        const db = firebase.database().ref('vi_jio_v1');
-        let myPeer, myStream, audioCtx, startTime;
-        let connectedPeers = new Set();
+        const db = firebase.database().ref('global_radio_v8');
+        let myPeer, myStream, audioCtx, remoteAnalyzer, startTime;
+        let connected = new Set();
 
-        function addLog(msg) {
-            const log = document.getElementById('log-window');
-            log.innerHTML += `> ${msg}<br>`;
-            log.scrollTop = log.scrollHeight;
+        function addLog(m) {
+            const l = document.getElementById('log');
+            l.innerHTML += `> ${m}<br>`;
+            l.scrollTop = l.scrollHeight;
         }
 
-        document.getElementById('start-btn').onclick = async function() {
-            this.style.display = 'none';
+        document.getElementById('pwr').onclick = async () => {
+            document.getElementById('pwr').style.display = 'none';
             document.getElementById('ui').style.display = 'block';
             startTime = new Date();
-            
+            addLog("Bypassing Carrier NAT...");
+
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 myStream.getAudioTracks()[0].enabled = false;
-                addLog("Mic Hardware: OK");
 
-                // CRITICAL FIX: Adding Public Relay Servers for Mobile Data
+                // THE CARRIER FIX: Enhanced Relay Config
                 myPeer = new Peer({
                     config: {
                         'iceServers': [
                             { urls: 'stun:stun.l.google.com:19302' },
-                            { urls: 'stun:stun.voiparound.com' },
-                            { urls: 'stun:stun.nextcloud.com:443' } // Port 443 often bypasses Vi/Jio firewalls
+                            // Forced Relay via Port 443 (HTTPS)
+                            { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
                         ],
-                        'iceTransportPolicy': 'all'
+                        'iceTransportPolicy': 'relay' // Force relay mode to act like a built-in VPN
                     }
                 });
 
                 myPeer.on('open', (id) => {
-                    addLog("Network ID: " + id.substring(0,4));
-                    const myRef = db.push(id);
-                    myRef.onDisconnect().remove();
+                    addLog("Tunnel Established.");
+                    db.push(id).onDisconnect().remove();
 
                     db.on('value', snap => {
                         const ids = snap.val() ? Object.values(snap.val()) : [];
-                        document.getElementById('peer-count').innerText = "PEERS: " + (ids.length - 1);
                         ids.forEach(tid => {
-                            if (tid !== id && !connectedPeers.has(tid)) {
-                                addLog("Punching tunnel to Peer...");
+                            if (tid !== id && !connected.has(tid)) {
+                                addLog("Linking to Carrier...");
                                 const call = myPeer.call(tid, myStream);
-                                call.on('stream', s => finalize(s, tid));
+                                call.on('stream', s => setupAudio(s, tid));
                             }
                         });
                     });
                 });
 
-                myPeer.on('call', call => {
-                    addLog("Incoming Peer Request...");
-                    call.answer(myStream);
-                    call.on('stream', s => finalize(s, call.peer));
+                myPeer.on('call', c => {
+                    addLog("Incoming Voice Link...");
+                    c.answer(myStream);
+                    c.on('stream', s => setupAudio(s, c.peer));
                 });
 
-            } catch (e) { addLog("Error: Mic Blocked"); }
+                updateLoop();
+            } catch (e) { addLog("Error: Mic Denied"); }
         };
 
-        function finalize(stream, id) {
-            if (connectedPeers.has(id)) return;
-            connectedPeers.add(id);
-            
+        function setupAudio(stream, id) {
+            if (connected.has(id)) return;
+            connected.add(id);
+
             const audio = new Audio();
             audio.srcObject = stream;
             audio.play().then(() => {
-                addLog("VOICE CHANNEL OPEN");
-                document.getElementById('status').innerText = "LINKED";
+                addLog("CONNECTED: AUDIO LIVE");
+                document.getElementById('stat').innerText = "LINKED";
                 document.getElementById('ptt-btn').style.display = 'block';
-            }).catch(e => addLog("Tap screen to hear audio"));
+                
+                const source = audioCtx.createMediaStreamSource(stream);
+                remoteAnalyzer = audioCtx.createAnalyzer();
+                source.connect(remoteAnalyzer);
+            }).catch(() => addLog("TAP SCREEN TO HEAR"));
         }
 
-        setInterval(() => {
-            if (!startTime) return;
-            const diff = Math.floor((new Date() - startTime) / 1000);
-            document.getElementById('timer').innerText = Math.floor(diff/60).toString().padStart(2,'0') + ":" + (diff%60).toString().padStart(2,'0');
-        }, 1000);
+        function updateLoop() {
+            if (startTime) {
+                const diff = Math.floor((new Date() - startTime) / 1000);
+                document.getElementById('timer').innerText = 
+                    Math.floor(diff/60).toString().padStart(2,'0') + ":" + (diff%60).toString().padStart(2,'0');
+            }
+            if (remoteAnalyzer) {
+                const data = new Uint8Array(remoteAnalyzer.frequencyBinCount);
+                remoteAnalyzer.getByteFrequencyData(data);
+                const volume = data.reduce((a, b) => a + b) / data.length;
+                document.getElementById('fill').style.width = Math.min(100, volume * 3) + "%";
+            }
+            requestAnimationFrame(updateLoop);
+        }
 
         const ptt = document.getElementById('ptt-btn');
-        const talk = (e) => {
+        const startTalk = (e) => {
             if(e) e.preventDefault();
             if(audioCtx.state === 'suspended') audioCtx.resume();
             if(myStream) myStream.getAudioTracks()[0].enabled = true;
             ptt.classList.add('active');
-            document.getElementById('status').innerText = "TRANSMIT";
+            document.getElementById('stat').innerText = "TRANSMIT";
         };
-        const stop = () => {
+        const stopTalk = () => {
             if(myStream) myStream.getAudioTracks()[0].enabled = false;
             ptt.classList.remove('active');
-            document.getElementById('status').innerText = "LINKED";
+            document.getElementById('stat').innerText = "LINKED";
         };
 
-        ptt.addEventListener('touchstart', talk);
-        ptt.addEventListener('touchend', stop);
-        ptt.addEventListener('mousedown', talk);
-        ptt.addEventListener('mouseup', stop);
+        ptt.addEventListener('touchstart', startTalk);
+        ptt.addEventListener('touchend', stopTalk);
+        ptt.addEventListener('mousedown', startTalk);
+        ptt.addEventListener('mouseup', stopTalk);
         window.onclick = () => { if(audioCtx) audioCtx.resume(); };
     </script>
 </body>
