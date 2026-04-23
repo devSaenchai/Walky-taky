@@ -3,30 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Echo1 Recovery</title>
+    <title>Echo1 Final Patch</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
-        body { background: #1a1a1a; color: white; font-family: sans-serif; text-align: center; padding: 20px; }
-        .btn { background: #0f0; color: #000; padding: 20px; border-radius: 10px; font-weight: bold; width: 80%; margin: 10px; border: none; font-size: 1.2rem; }
-        #ptt { background: #444; height: 150px; width: 150px; border-radius: 50%; color: white; display: none; margin: 20px auto; border: 5px solid #222; }
-        #ptt.active { background: #f00; }
-        .status-box { background: #333; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+        body { background: #1a1a1a; color: white; font-family: monospace; text-align: center; padding: 20px; touch-action: manipulation; }
+        .btn-pwr { background: #0f0; color: #000; padding: 20px; border-radius: 10px; font-weight: bold; width: 80%; border: none; font-size: 1.2rem; margin-top: 20%; }
+        #ptt { background: #444; height: 180px; width: 180px; border-radius: 50%; color: white; display: none; margin: 40px auto; border: 8px solid #222; font-weight: bold; font-size: 1.2rem; box-shadow: 0 8px 0 #111; user-select: none; -webkit-tap-highlight-color: transparent; }
+        #ptt.active { background: #f00; transform: translateY(5px); box-shadow: 0 2px 0 #111; }
+        .status-card { background: #222; border: 2px solid #444; padding: 20px; border-radius: 15px; margin-bottom: 20px; }
+        #log { font-size: 0.8rem; color: #888; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <div class="status-box">
-        <div id="stat">SYSTEM OFF</div>
-        <div id="peers">PEERS: 0</div>
+    <div class="status-card">
+        <div id="stat" style="font-size: 1.5rem; color: #0f0;">SYSTEM READY</div>
+        <div id="peers" style="margin-top: 10px;">PEERS CONNECTED: 0</div>
+        <div id="log">Awaiting Activation...</div>
     </div>
 
-    <button id="pwr" class="btn">ACTIVATE RADIO</button>
+    <button id="pwr" class="btn-pwr">START RADIO</button>
     <button id="ptt">HOLD TO TALK</button>
 
     <script>
-        // CONFIG FROM YOUR FIREBASE
+        // Use your verified Firebase Config
         const firebaseConfig = {
           apiKey: "AIzaSyBRZ_E78l5EDRAgyHvE81aZAg9XWZySNrE",
           authDomain: "walky-taky-6b118.firebaseapp.com",
@@ -38,47 +40,39 @@
         };
 
         firebase.initializeApp(firebaseConfig);
-        const db = firebase.database().ref('radio_lobby');
+        const db = firebase.database().ref('radio_v3');
         
         let myPeer, myStream, audioCtx;
-        const pwrBtn = document.getElementById('pwr');
-        const pttBtn = document.getElementById('ptt');
-        const stat = document.getElementById('stat');
+        const remoteStreams = [];
 
-        pwrBtn.onclick = async () => {
+        document.getElementById('pwr').onclick = async () => {
             try {
-                // FORCE WAKE HARDWARE
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                if(audioCtx.state === 'suspended') await audioCtx.resume();
-
-                // SIMPLEST MIC REQUEST
                 myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 myStream.getAudioTracks()[0].enabled = false;
 
-                stat.innerText = "MIC CONNECTED. INITIALIZING PEER...";
-                pwrBtn.style.display = "none";
-                pttBtn.style.display = "block";
+                document.getElementById('pwr').style.display = "none";
+                document.getElementById('ptt').style.display = "block";
+                document.getElementById('log').innerText = "Hardware Connected.";
 
-                initRadio();
-            } catch (e) {
-                alert("HARDWARE BLOCKED: Close all other apps (Spotify, Phone, etc) and refresh.");
-            }
+                initPeer();
+            } catch (e) { alert("Mic blocked by system."); }
         };
 
-        function initRadio() {
+        function initPeer() {
             myPeer = new Peer();
             myPeer.on('open', (id) => {
-                stat.innerText = "ONLINE";
+                document.getElementById('stat').innerText = "ONLINE";
                 const myRef = db.push(id);
                 myRef.onDisconnect().remove();
 
                 db.on('value', snap => {
                     const ids = snap.val() ? Object.values(snap.val()) : [];
-                    document.getElementById('peers').innerText = "PEERS: " + (ids.length - 1);
+                    document.getElementById('peers').innerText = "PEERS CONNECTED: " + (ids.length - 1);
                     ids.forEach(tid => {
                         if(tid !== id) {
                             const call = myPeer.call(tid, myStream);
-                            call.on('stream', s => playAudio(s));
+                            call.on('stream', s => handleStream(s));
                         }
                     });
                 });
@@ -86,38 +80,46 @@
 
             myPeer.on('call', c => {
                 c.answer(myStream);
-                c.on('stream', s => playAudio(s));
+                c.on('stream', s => handleStream(s));
             });
         }
 
-        function playAudio(stream) {
+        function handleStream(stream) {
             const audio = new Audio();
             audio.srcObject = stream;
+            audio.volume = 1.0;
+            remoteStreams.push(audio);
+            // Try to play immediately
             audio.play().catch(() => {
-                stat.innerText = "TAP SCREEN TO HEAR AUDIO";
-                window.onclick = () => audio.play();
+                document.getElementById('log').innerText = "TAP SCREEN TO UNMUTE OTHERS";
             });
         }
 
-        // PTT LOGIC
-        const talk = (e) => {
+        // UNLOCK AUDIO ON ANY INTERACTION
+        window.addEventListener('click', () => {
+            if(audioCtx) audioCtx.resume();
+            remoteStreams.forEach(a => a.play());
+        });
+
+        const pttBtn = document.getElementById('ptt');
+        const startTx = (e) => {
             if(e) e.preventDefault();
-            if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            if(audioCtx) audioCtx.resume();
             if(myStream) myStream.getAudioTracks()[0].enabled = true;
             pttBtn.classList.add('active');
-            stat.innerText = "TRANSMITTING...";
+            document.getElementById('stat').innerText = "TRANSMITTING";
         };
 
-        const stop = () => {
+        const stopTx = () => {
             if(myStream) myStream.getAudioTracks()[0].enabled = false;
             pttBtn.classList.remove('active');
-            stat.innerText = "ONLINE";
+            document.getElementById('stat').innerText = "ONLINE";
         };
 
-        pttBtn.addEventListener('touchstart', talk);
-        pttBtn.addEventListener('touchend', stop);
-        pttBtn.addEventListener('mousedown', talk);
-        pttBtn.addEventListener('mouseup', stop);
+        pttBtn.addEventListener('touchstart', startTx);
+        pttBtn.addEventListener('touchend', stopTx);
+        pttBtn.addEventListener('mousedown', startTx);
+        pttBtn.addEventListener('mouseup', stopTx);
     </script>
 </body>
 </html>
