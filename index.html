@@ -2,46 +2,143 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Walky-Taky | by Saenchai</title>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
-        :root { --radio-body: #1e1e1e; --screen-bg: #8ba870; --accent: #00ff41; }
+        :root { --radio-body: #1e1e1e; --screen-bg: #8ba870; --accent: #ffcc00; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { background: #0a0a0a; color: #fff; font-family: 'Courier New', monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-        .walkie-talkie { background: var(--radio-body); width: 100%; max-width: 360px; height: 95vh; padding: 20px; border-radius: 40px; border: 10px solid #111; display: flex; flex-direction: column; position: relative; box-shadow: 0 0 50px rgba(0,0,0,1); }
-        .antenna { width: 25px; height: 60px; background: #111; position: absolute; top: -55px; left: 40px; border-radius: 5px; }
-        .lcd-frame { background: #000; padding: 10px; border-radius: 15px; margin-top: 10px; box-shadow: 0 4px 0 #333; }
-        .lcd-screen { background: var(--screen-bg); color: #050505; padding: 10px; height: 250px; display: flex; flex-direction: column; border: 4px inset rgba(0,0,0,0.5); }
-        .header { font-size: 0.7rem; font-weight: 900; border-bottom: 2px solid rgba(0,0,0,0.3); padding-bottom: 5px; display: flex; justify-content: space-between; }
-        #log { font-size: 0.65rem; flex-grow: 1; overflow-y: auto; margin: 10px 0; scrollbar-width: thin; }
+        
+        /* Fix for Notch and Navbar overlaps */
+        html, body { 
+            height: 100%; 
+            margin: 0; 
+            padding: 0; 
+            background: #000; 
+            overflow: hidden; 
+        }
+
+        body { 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-family: 'Courier New', monospace;
+            /* Safe area padding for iPhone/Android */
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        .walkie-talkie { 
+            background: var(--radio-body); 
+            width: 100%; 
+            max-width: 400px; 
+            height: 100%; /* Uses 100% of the available safe area */
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            position: relative; 
+            border-left: 8px solid #111;
+            border-right: 8px solid #111;
+        }
+
+        /* Simplified antenna to stay within screen bounds */
+        .antenna-nub { width: 40px; height: 15px; background: #111; margin: -20px auto 10px auto; border-radius: 5px 5px 0 0; }
+
+        .lcd-frame { 
+            background: #000; 
+            padding: 8px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 0 #333; 
+        }
+
+        .lcd-screen { 
+            background: var(--screen-bg); 
+            color: #050505; 
+            padding: 10px; 
+            height: 220px; 
+            display: flex; 
+            flex-direction: column; 
+            border: 4px inset rgba(0,0,0,0.5); 
+        }
+
+        .header { 
+            font-size: 0.7rem; 
+            font-weight: 900; 
+            border-bottom: 2px solid rgba(0,0,0,0.3); 
+            padding-bottom: 5px; 
+            display: flex; 
+            justify-content: space-between; 
+        }
+
+        #log { 
+            font-size: 0.65rem; 
+            flex-grow: 1; 
+            overflow-y: auto; 
+            margin: 8px 0; 
+            scrollbar-width: thin; 
+        }
+
         .branding { font-size: 0.55rem; text-align: center; font-weight: 900; letter-spacing: 1px; }
-        .controls { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; }
-        #ptt { width: 160px; height: 160px; border-radius: 50%; border: 12px solid #000; background: radial-gradient(#444, #222); color: white; font-weight: 900; font-size: 1.2rem; box-shadow: 0 10px 0 #000; transition: 0.05s; cursor: pointer; }
-        #ptt:active:not(:disabled) { transform: translateY(6px); box-shadow: 0 4px 0 #000; background: radial-gradient(#f00, #900); }
-        #ptt:disabled { filter: grayscale(1); opacity: 0.3; cursor: not-allowed; }
+
+        .controls { 
+            flex-grow: 1; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+        }
+
+        #ptt { 
+            width: 180px; 
+            height: 180px; 
+            border-radius: 50%; 
+            border: 12px solid #000; 
+            background: radial-gradient(#444, #222); 
+            color: white; 
+            font-weight: 900; 
+            font-size: 1.4rem; 
+            box-shadow: 0 10px 0 #000; 
+            transition: 0.05s; 
+        }
+
+        #ptt:active:not(:disabled) { 
+            transform: translateY(6px); 
+            box-shadow: 0 4px 0 #000; 
+            background: radial-gradient(#f00, #900); 
+        }
+
+        #ptt:disabled { filter: grayscale(1); opacity: 0.3; }
+
         .meter { height: 8px; background: rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden; margin-bottom: 5px; }
         #fill { height: 100%; width: 0%; background: #000; transition: width 0.05s; }
-        .blink { animation: flash 1s infinite; color: #700; }
+        .blink { animation: flash 1s infinite; }
         @keyframes flash { 50% { opacity: 0.3; } }
     </style>
 </head>
 <body>
 
 <div class="walkie-talkie">
-    <div class="antenna"></div>
+    <div class="antenna-nub"></div>
     <div class="lcd-frame">
         <div class="lcd-screen">
-            <div class="header"><span id="status">OFFLINE</span><span>STRM: 10-SLOT</span></div>
-            <div id="log">SYSTEM READY...<br>PRESS POWER TO START.</div>
+            <div class="header">
+                <span id="status">OFFLINE</span>
+                <span>SAFE-UI</span>
+            </div>
+            <div id="log">SCREEN BOUNDS CHECK...<br>READY.</div>
             <div class="meter"><div id="fill"></div></div>
-            <div class="branding">SAENCHAI WALK-TAKY V2.1</div>
+            <div class="branding">WALKY-TAKY BY SAENCHAI</div>
         </div>
     </div>
-    <div class="controls"><button id="ptt" disabled>PUSH</button></div>
-    <div style="text-align: center; padding-bottom: 20px;">
-        <button id="pwr" style="background:#d00; color:#fff; border:none; padding:12px 25px; border-radius:10px; font-weight:bold; box-shadow: 0 4px #800;" onclick="boot()">POWER ON</button>
+
+    <div class="controls">
+        <button id="ptt" disabled>PTT</button>
+        <p style="font-size: 0.6rem; color: #555; margin-top: 15px;">FULL SCREEN ACTIVE</p>
+    </div>
+    
+    <div style="text-align: center; padding-bottom: 10px;">
+        <button id="pwr" style="background:var(--accent); border:none; padding:15px 30px; border-radius:10px; font-weight:bold; width: 80%;" onclick="boot()">POWER ON</button>
     </div>
 </div>
 
@@ -52,9 +149,9 @@
         projectId: "walky-taky-6b118"
     };
     firebase.initializeApp(config);
-    const db = firebase.database().ref('walkytaky_saenchai_v3');
+    const db = firebase.database().ref('walkytaky_saenchai');
     
-    let audioCtx, isTalking = false, nextStartTime = 0, writeIdx = 0, lastReadSeq = -1;
+    let audioCtx, isTalking = false, currentSlice = [], nextStartTime = 0;
     const ptt = document.getElementById('ptt');
     const logBox = document.getElementById('log');
 
@@ -63,23 +160,20 @@
         logBox.scrollTop = logBox.scrollHeight;
     }
 
-    function beep(freq, dur) {
-        if(!audioCtx) return;
+    function beep(freq, duration) {
         const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.connect(g); g.connect(audioCtx.destination);
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
         osc.frequency.value = freq;
-        g.gain.setValueAtTime(0.05, audioCtx.currentTime);
-        osc.start(); osc.stop(audioCtx.currentTime + dur);
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        osc.start(); osc.stop(audioCtx.currentTime + duration);
     }
 
     async function boot() {
         document.getElementById('pwr').style.display = 'none';
-        addLog("Initializing Audio Engine...");
+        addLog("Syncing Viewport...");
         try {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            if (audioCtx.state === 'suspended') await audioCtx.resume();
-            
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
             const source = audioCtx.createMediaStreamSource(stream);
             const processor = audioCtx.createScriptProcessor(2048, 1, 1);
@@ -89,46 +183,36 @@
             processor.onaudioprocess = (e) => {
                 if (isTalking) {
                     const input = e.inputBuffer.getChannelData(0);
-                    const p = new Int16Array(input.length);
-                    for(let i=0; i<input.length; i++) p[i] = input[i] * 0x7FFF;
-                    
-                    db.child('s' + (writeIdx % 10)).set({
-                        s: writeIdx,
-                        d: btoa(String.fromCharCode(...new Uint16Array(p.buffer)))
-                    });
-                    writeIdx++;
+                    currentSlice.push(...Array.from(input));
+                    if (currentSlice.length >= 4000) {
+                        db.child('voice').set(btoa(JSON.stringify(currentSlice)));
+                        currentSlice = [];
+                    }
                 }
             };
 
-            // Enhanced Listener Logic from your working files
             db.on('value', (snap) => {
                 const val = snap.val();
                 if (!val) return;
 
-                // Collision Lock
-                if (val.lock && val.lock !== audioCtx.baseLatency) {
+                if (val.lockedBy && val.lockedBy !== audioCtx.baseLatency) {
                     ptt.disabled = true;
                     document.getElementById('status').innerText = "BUSY";
+                    document.getElementById('status').classList.add('blink');
                 } else {
                     ptt.disabled = false;
                     document.getElementById('status').innerText = "READY";
+                    document.getElementById('status').classList.remove('blink');
                 }
 
-                // Check all 10 slots for the newest sequence
-                for(let i=0; i<10; i++) {
-                    const slot = val['s' + i];
-                    if (slot && !isTalking && slot.s > lastReadSeq) {
-                        lastReadSeq = slot.s;
-                        const bin = atob(slot.d);
-                        const uint = new Uint16Array(bin.length);
-                        for(let j=0; j<bin.length; j++) uint[j] = bin.charCodeAt(j);
-                        play(new Float32Array(new Int16Array(uint.buffer)).map(v => v/0x7FFF));
-                    }
+                if (val.voice && !isTalking) {
+                    const raw = JSON.parse(atob(val.voice));
+                    play(new Float32Array(raw));
                 }
             });
 
-            addLog("Link Secure. Channels Open.");
-        } catch (err) { addLog("Critical: Mic Error"); }
+            addLog("Frequency Locked.");
+        } catch (err) { addLog("Error: Mic Denied"); }
     }
 
     function play(data) {
@@ -137,7 +221,7 @@
         const s = audioCtx.createBufferSource();
         s.buffer = b; s.connect(audioCtx.destination);
         const now = audioCtx.currentTime;
-        if (nextStartTime < now) nextStartTime = now + 0.15; // Increased buffer for stability
+        if (nextStartTime < now) nextStartTime = now + 0.05;
         s.start(nextStartTime);
         nextStartTime += b.duration;
         
@@ -147,21 +231,20 @@
 
     ptt.onmousedown = ptt.ontouchstart = (e) => {
         e.preventDefault();
-        if (ptt.disabled || isTalking) return;
+        if (ptt.disabled) return;
         isTalking = true;
-        writeIdx = 0; 
-        beep(1000, 0.05);
-        db.child('lock').set(audioCtx.baseLatency);
-        addLog(">>> TRANSMITTING");
+        beep(880, 0.1); 
+        db.child('lockedBy').set(audioCtx.baseLatency);
+        addLog("TX ACTIVE");
     };
 
     ptt.onmouseup = ptt.ontouchend = () => {
         if (!isTalking) return;
         setTimeout(() => {
             isTalking = false;
-            db.child('lock').remove();
-            beep(500, 0.08);
-            addLog("<<< TX ENDED");
+            db.child('lockedBy').remove();
+            beep(440, 0.1); 
+            addLog("TX ENDED");
         }, 300);
     };
 </script>
