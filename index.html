@@ -3,39 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Echo1 Final</title>
+    <title>Echo1 Pro</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
         :root { --radio-green: #94ad94; --radio-dark: #1a1a1a; }
-        body { background: var(--radio-dark); color: #fff; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; touch-action: none; }
-        .radio-body { background: #333; width: 280px; padding: 30px; border-radius: 40px; border: 4px solid #222; text-align: center; }
-        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 90px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#555, #222); color: white; font-weight: bold; font-size: 1rem; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 6px 0 #111; }
-        #ptt-btn:active { background: radial-gradient(#f22, #800); transform: translateY(4px); }
-        .power-btn { background: #0f0; color: #000; border: none; padding: 15px 30px; border-radius: 50px; cursor: pointer; font-weight: bold; }
+        body { background: var(--radio-dark); color: #fff; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; touch-action: none; overflow: hidden; }
+        .radio-body { background: #333; width: 280px; padding: 30px; border-radius: 40px; border: 4px solid #222; text-align: center; box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 100px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#555, #222); color: white; font-weight: bold; font-size: 1rem; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 6px 0 #111; user-select: none; }
+        #ptt-btn:active { background: radial-gradient(#f22, #800); transform: translateY(4px); box-shadow: 0 2px 0 #111; }
+        .power-btn { background: #0f0; color: #000; border: none; padding: 15px 30px; border-radius: 50px; cursor: pointer; font-weight: bold; font-size: 1.1rem; }
         .hidden { display: none; }
-        .meter-label { font-size: 0.6rem; margin-top: 5px; opacity: 0.7; }
-        #in-meter, #out-meter { font-weight: 900; letter-spacing: 1px; height: 15px; }
+        .meter-label { font-size: 0.6rem; margin-top: 5px; opacity: 0.7; text-transform: uppercase; }
+        #in-meter, #out-meter { font-weight: 900; letter-spacing: 2px; height: 18px; font-size: 1.1rem; color: #222; }
     </style>
 </head>
 <body>
 
     <div class="radio-body">
-        <button id="start-btn" class="power-btn">FORCE START</button>
+        <button id="start-btn" class="power-btn">SYSTEM POWER ON</button>
         
         <div id="ui-container" class="hidden">
             <div class="screen">
                 <div id="status">READY</div>
                 <div style="font-size: 0.7rem;">PEERS: <span id="peer-count">0</span></div>
-                <hr style="width: 80%; border: 0.5px solid rgba(0,0,0,0.1); margin: 5px 0;">
-                <div class="meter-label">OUTGOING (YOU)</div>
+                <hr style="width: 80%; border: 0.5px solid rgba(0,0,0,0.1); margin: 8px 0;">
+                <div class="meter-label">MIC (YOU)</div>
                 <div id="out-meter">----</div>
-                <div class="meter-label">INCOMING (THEM)</div>
+                <div class="meter-label">VOICE (THEM)</div>
                 <div id="in-meter">----</div>
             </div>
             <button id="ptt-btn">PUSH<br>TO TALK</button>
+            <p style="font-size: 9px; color: #777; margin-top: 15px;">CHANNEL: 6B118</p>
         </div>
     </div>
 
@@ -59,20 +60,24 @@
             this.classList.add('hidden');
             document.getElementById('ui-container').classList.remove('hidden');
             
+            // 1. Initialize Audio Context
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
             try {
-                // FORCE: Ask for mic with high priority
-                myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // 2. Request Mic
+                myStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
+                });
                 
-                // Set up local monitor (See if your own mic is working)
+                // 3. Set up Outgoing Monitor
                 myAnalyzer = audioCtx.createAnalyzer();
                 const source = audioCtx.createMediaStreamSource(myStream);
                 source.connect(myAnalyzer);
                 
-                // Mute mic for others until PTT is pressed
+                // Keep mic track disabled until PTT
                 myStream.getAudioTracks()[0].enabled = false;
 
+                // 4. Initialize Peer
                 peer = new Peer({
                     config: { 'iceServers': [{ url: 'stun:stun.l.google.com:19302' }] }
                 });
@@ -80,13 +85,17 @@
                 peer.on('open', (id) => {
                     const myRef = db.push(id);
                     myRef.onDisconnect().remove();
+                    
                     db.on('value', snap => {
                         document.getElementById('peer-count').innerText = snap.val() ? Object.keys(snap.val()).length : 0;
                     });
+
                     db.on('child_added', snap => {
-                        if(snap.val() !== id && !peerList.has(snap.val())) {
-                            peerList.add(snap.val());
-                            peer.call(snap.val(), myStream).on('stream', s => setupIncoming(s));
+                        const targetId = snap.val();
+                        if(targetId !== id && !peerList.has(targetId)) {
+                            peerList.add(targetId);
+                            const call = peer.call(targetId, myStream);
+                            call.on('stream', s => setupIncoming(s));
                         }
                     });
                 });
@@ -97,55 +106,64 @@
                 });
 
                 updateMeters();
-            } catch (e) { alert("Mic Blocked!"); }
+            } catch (e) { 
+                alert("Please check microphone permissions!"); 
+            }
         };
 
         function setupIncoming(stream) {
             const audio = new Audio();
             audio.srcObject = stream;
-            audio.play().catch(() => { document.getElementById('status').innerText = "TAP TO HEAR"; });
+            audio.play().catch(() => { console.log("Autoplay blocked"); });
             
             const source = audioCtx.createMediaStreamSource(stream);
             const analyzer = audioCtx.createAnalyzer();
             source.connect(analyzer);
             analyzer.connect(audioCtx.destination);
-            window.remoteAnalyzer = analyzer; // Keep reference
+            window.remoteAnalyzer = analyzer;
         }
 
         function updateMeters() {
             const data = new Uint8Array(128);
             
-            // Monitor your own mic
-            if(myAnalyzer) {
+            // Outgoing Meter (Me)
+            if(myAnalyzer && myStream.getAudioTracks()[0].enabled) {
                 myAnalyzer.getByteFrequencyData(data);
                 let val = data.reduce((a,b)=>a+b)/128;
-                document.getElementById('out-meter').innerText = val > 5 ? "▓▒░▒▓█" : "----";
+                document.getElementById('out-meter').innerText = val > 10 ? "▓▒░▒▓█" : "----";
+            } else {
+                document.getElementById('out-meter').innerText = "----";
             }
 
-            // Monitor their voice
+            // Incoming Meter (Them)
             if(window.remoteAnalyzer) {
                 window.remoteAnalyzer.getByteFrequencyData(data);
                 let val = data.reduce((a,b)=>a+b)/128;
-                document.getElementById('in-meter').innerText = val > 5 ? "▓▒░▒▓█" : "----";
+                document.getElementById('in-meter').innerText = val > 10 ? "▓▒░▒▓█" : "----";
             }
             requestAnimationFrame(updateMeters);
         }
 
         const ptt = document.getElementById('ptt-btn');
-        const start = () => { 
+        
+        const startTalking = (e) => {
+            if(e) e.preventDefault();
+            // Critical: Resume AudioContext on PTT tap
+            if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            
             if(myStream) myStream.getAudioTracks()[0].enabled = true; 
-            document.getElementById('status').innerText = "TALKING";
-            if(audioCtx.state === 'suspended') audioCtx.resume();
+            document.getElementById('status').innerText = "TRANSMITTING";
         };
-        const stop = () => { 
+
+        const stopTalking = () => { 
             if(myStream) myStream.getAudioTracks()[0].enabled = false; 
             document.getElementById('status').innerText = "READY";
         };
 
-        ptt.addEventListener('touchstart', (e) => { e.preventDefault(); start(); });
-        ptt.addEventListener('touchend', stop);
-        ptt.addEventListener('mousedown', start);
-        ptt.addEventListener('mouseup', stop);
+        ptt.addEventListener('touchstart', startTalking);
+        ptt.addEventListener('touchend', stopTalking);
+        ptt.addEventListener('mousedown', startTalking);
+        ptt.addEventListener('mouseup', stopTalking);
     </script>
 </body>
 </html>
