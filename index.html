@@ -12,13 +12,14 @@
         body { background: var(--radio-dark); color: #fff; font-family: 'Courier New', monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; touch-action: none; }
         .walkie-talkie-body { background: #333; width: 280px; padding: 30px; border-radius: 40px; border: 4px solid #222; box-shadow: 0 15px 0 #111; text-align: center; position: relative; }
         .antenna { width: 25px; height: 50px; background: #222; position: absolute; top: -50px; left: 40px; border-radius: 5px 5px 0 0; }
-        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1rem; text-transform: uppercase; line-height: 1.2; }
+        .screen { background: var(--radio-green); color: #1a1a1a; padding: 15px; border-radius: 10px; font-weight: bold; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.2); min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1rem; text-transform: uppercase; }
         #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#555, #222); cursor: pointer; color: white; font-weight: bold; font-size: 1rem; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 6px 0 #111; user-select: none; }
         #ptt-btn:active { background: radial-gradient(#f22, #800); transform: translateY(4px); box-shadow: 0 2px 0 #111; }
         .power-btn { background: #0f0; color: #000; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 1rem; box-shadow: 0 4px 0 #080; }
         .hidden { display: none; }
         .led { width: 12px; height: 12px; border-radius: 50%; background: #200; margin: 0 auto 15px; border: 2px solid #111; }
         .led.on { background: var(--led-red); box-shadow: 0 0 10px var(--led-red); }
+        #wave { font-size: 0.6rem; color: #333; height: 10px; }
     </style>
 </head>
 <body>
@@ -30,7 +31,8 @@
         <div id="ui-container" class="hidden">
             <div id="status-box" class="screen">
                 <div id="status">LOGGING IN...</div>
-                <div id="peer-count" style="font-size: 0.7rem; margin-top: 5px;">Peers: 0</div>
+                <div id="peer-count" style="font-size: 0.7rem;">Peers: 0</div>
+                <div id="wave">---------</div>
             </div>
             <div id="tx-led" class="led"></div>
             <button id="ptt-btn">PUSH<br>TO TALK</button>
@@ -71,23 +73,18 @@
             this.classList.add('hidden');
             document.getElementById('ui-container').classList.remove('hidden');
             
-            // 1. Initialize Audio Engine
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             if (audioCtx.state === 'suspended') audioCtx.resume();
 
             try {
-                // 2. Capture Microphone
-                myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // High-quality audio constraints for mobile
+                myStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
+                });
                 myStream.getAudioTracks()[0].enabled = false;
 
-                // 3. Setup PeerJS with STUN servers
                 peer = new Peer({
-                    config: {
-                        'iceServers': [
-                            { url: 'stun:stun.l.google.com:19302' },
-                            { url: 'stun:stun1.l.google.com:19302' }
-                        ]
-                    }
+                    config: { 'iceServers': [{ url: 'stun:stun.l.google.com:19302' }, { url: 'stun:stun1.l.google.com:19302' }] }
                 });
                 
                 peer.on('open', (id) => {
@@ -95,14 +92,11 @@
                     const myRef = db.push(id);
                     myRef.onDisconnect().remove();
 
-                    // Monitor total peers
-                    db.on('value', (snapshot) => {
-                        const data = snapshot.val();
-                        const count = data ? Object.keys(data).length : 0;
+                    db.on('value', (snap) => {
+                        const count = snap.val() ? Object.keys(snap.val()).length : 0;
                         document.getElementById('peer-count').innerText = "Peers: " + count;
                     });
 
-                    // Call others
                     db.on('child_added', (snap) => {
                         const userId = snap.val();
                         if(userId !== id && !peerList.has(userId)) {
@@ -113,7 +107,6 @@
                     });
                 });
 
-                // 4. Handle incoming calls
                 peer.on('call', (call) => {
                     call.answer(myStream);
                     call.on('stream', (remote) => playStream(remote));
@@ -121,25 +114,38 @@
 
             } catch (err) {
                 document.getElementById('status').innerText = "MIC ERROR";
-                alert("Please enable microphone access.");
             }
         };
 
-        // FORCE PLAYBACK LOGIC
         function playStream(stream) {
-            const audio = document.createElement('audio');
+            // Visual Wave Logic
+            const visualizer = audioCtx.createAnalyzer();
+            const source = audioCtx.createMediaStreamSource(stream);
+            source.connect(visualizer);
+            
+            const dataArray = new Uint8Array(visualizer.frequencyBinCount);
+            function updateWave() {
+                visualizer.getByteFrequencyData(dataArray);
+                const volume = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                if(volume > 10) document.getElementById('wave').innerText = "🔊 ~~~~~~";
+                else document.getElementById('wave').innerText = "---------";
+                requestAnimationFrame(updateWave);
+            }
+            updateWave();
+
+            // Actual Audio Output
+            const audio = new Audio();
             audio.srcObject = stream;
             audio.autoplay = true;
-            audio.playsInline = true; 
+            audio.playsInline = true;
             document.body.appendChild(audio); 
-            audio.style.display = "none";
             
-            const promise = audio.play();
-            if (promise !== undefined) {
-                promise.catch(error => {
-                    console.error("Autoplay prevented:", error);
-                    document.getElementById('status').innerText = "TAP SCREEN";
-                    window.addEventListener('click', () => {
+            // iPhone Safari needs a click to start the audio if it was blocked
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(() => {
+                    document.getElementById('status').innerText = "TAP TO UNMUTE";
+                    window.addEventListener('touchstart', () => {
                         audio.play();
                         document.getElementById('status').innerText = "READY";
                     }, { once: true });
@@ -169,7 +175,6 @@
             statusDisplay.innerText = "READY";
         };
 
-        // Event listeners for Desktop & Mobile
         ptt.addEventListener('mousedown', startTalking);
         ptt.addEventListener('mouseup', stopTalking);
         ptt.addEventListener('touchstart', startTalking, {passive: false});
