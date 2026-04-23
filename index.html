@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Echo1: Quantum-Stream</title>
+    <title>Echo1: Seamless-Pipe</title>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
@@ -11,8 +11,8 @@
         body { background: var(--r-dark); color: #fff; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
         .radio { background: #333; width: 310px; padding: 25px; border-radius: 45px; border: 6px solid #111; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.9); }
         .screen { background: var(--r-green); color: #1a1a1a; padding: 12px; border-radius: 12px; font-weight: bold; min-height: 220px; display: flex; flex-direction: column; margin-bottom: 20px; border: 4px inset rgba(0,0,0,0.3); }
-        #ptt { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#666, #222); color: white; font-weight: 900; outline: none; display: none; margin: 0 auto; -webkit-tap-highlight-color: transparent; }
-        #ptt:active { background: radial-gradient(#f00, #800); transform: translateY(4px); }
+        #ptt { width: 140px; height: 140px; border-radius: 50%; border: 10px solid #222; background: radial-gradient(#666, #222); color: white; font-weight: 900; outline: none; display: none; margin: 0 auto; -webkit-tap-highlight-color: transparent; box-shadow: 0 8px 0 #111; transition: 0.1s; }
+        #ptt:active { background: radial-gradient(#f00, #800); transform: translateY(4px); box-shadow: 0 2px 0 #111; }
         .meter { height: 15px; background: rgba(0,0,0,0.2); border-radius: 8px; overflow: hidden; margin-top: 10px; }
         #fill { height: 100%; width: 0%; background: #000; transition: width 0.05s; }
     </style>
@@ -20,15 +20,15 @@
 <body>
 
     <div class="radio">
-        <button id="pwr" style="background:#0f0; color:#000; padding:18px 30px; border-radius:50px; font-weight:900; border:none;" onclick="boot()">INITIALIZE QUANTUM LINK</button>
+        <button id="pwr" style="background:#0f0; color:#000; padding:18px 30px; border-radius:50px; font-weight:900; border:none;" onclick="boot()">START SEAMLESS LINK</button>
         <div id="ui" style="display:none;">
             <div class="screen">
                 <div style="font-size: 0.8rem; display: flex; justify-content: space-between;">
-                    <span id="stat">SCANNING</span>
+                    <span id="stat">STABLE</span>
                     <span id="timer">00:00</span>
                 </div>
-                <div id="log" style="font-size:0.55rem; text-align:left; flex-grow:1; overflow:hidden; padding: 10px 0;"></div>
-                <div style="font-size: 0.6rem; font-weight: 900;">MULTI-CHANNEL FLOW:</div>
+                <div id="log" style="font-size:0.5rem; text-align:left; flex-grow:1; overflow:hidden; padding: 10px 0;"></div>
+                <div style="font-size: 0.6rem; font-weight: 900;">VOICE STREAM:</div>
                 <div class="meter"><div id="fill"></div></div>
             </div>
             <button id="ptt">TALK</button>
@@ -42,9 +42,9 @@
             projectId: "walky-taky-6b118"
         };
         firebase.initializeApp(config);
-        const db = firebase.database().ref('quantum_v20');
+        const db = firebase.database().ref('seamless_v22');
         
-        let audioCtx, isTalking = false, nextPlayTime = 0, slot = 0;
+        let audioCtx, isTalking = false, scheduledTime = 0;
 
         async function boot() {
             document.getElementById('pwr').style.display = 'none';
@@ -52,57 +52,70 @@
             
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
                 const source = audioCtx.createMediaStreamSource(stream);
-                const processor = audioCtx.createScriptProcessor(2048, 1, 1);
-
+                
+                // Using 1024 for ultra-low latency processing
+                const processor = audioCtx.createScriptProcessor(1024, 1, 1);
                 source.connect(processor);
                 processor.connect(audioCtx.destination);
 
                 processor.onaudioprocess = (e) => {
                     if (isTalking) {
                         const input = e.inputBuffer.getChannelData(0);
-                        // Send tiny, rapid bursts (2048 samples = ~0.1s delay)
-                        db.child('s' + slot).set(btoa(JSON.stringify(Array.from(input))));
-                        slot = (slot + 1) % 5; // Rotate through 5 parallel slots
+                        // Convert to Int16 to reduce packet weight by 50%
+                        const p = new Int16Array(input.length);
+                        for(let i=0; i<input.length; i++) p[i] = input[i] * 0x7FFF;
+                        db.child('pipe').set(btoa(String.fromCharCode(...new Uint16Array(p.buffer))));
                     }
                 };
 
-                // Listen to all 5 slots simultaneously
-                for(let i=0; i<5; i++) {
-                    db.child('s' + i).on('value', (snap) => {
-                        const data = snap.val();
-                        if (data && !isTalking) {
-                            const raw = JSON.parse(atob(data));
-                            play(new Float32Array(raw));
-                        }
-                    });
-                }
+                db.child('pipe').on('value', (snap) => {
+                    const data = snap.val();
+                    if (data && !isTalking) {
+                        const bin = atob(data);
+                        const uint = new Uint16Array(bin.length);
+                        for(let i=0; i<bin.length; i++) uint[i] = bin.charCodeAt(i);
+                        const float = new Float32Array(new Int16Array(uint.buffer)).map(v => v/0x7FFF);
+                        playSeamless(float);
+                    }
+                });
+
                 document.getElementById('ptt').style.display = 'block';
-            } catch (err) { alert("Mic Access Required"); }
+            } catch (err) { alert("Mic required for seamless call."); }
         }
 
-        function play(data) {
-            const b = audioCtx.createBuffer(1, data.length, 16000);
-            b.getChannelData(0).set(data);
-            const s = audioCtx.createBufferSource();
-            s.buffer = b;
-            s.connect(audioCtx.destination);
+        function playSeamless(data) {
+            const buffer = audioCtx.createBuffer(1, data.length, 16000);
+            buffer.getChannelData(0).set(data);
+            
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+
+            // CROSS-FADE LOGIC: Adds a 5ms fade to the start and end of every chunk
+            // This prevents the "clicking/cutting" sound between data packets.
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(1, audioCtx.currentTime + 0.005);
+            
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
 
             const now = audioCtx.currentTime;
-            if (nextPlayTime < now) nextPlayTime = now + 0.02;
-            s.start(nextPlayTime);
-            nextPlayTime += b.duration;
+            // The "Sweet Spot" Latency: 0.1s look-ahead is enough to hide 4G/LTE jitter
+            if (scheduledTime < now) scheduledTime = now + 0.1;
             
-            // Update visualizer
-            let sum = 0;
-            for(let i=0; i<data.length; i++) sum += Math.abs(data[i]);
+            source.start(scheduledTime);
+            scheduledTime += (buffer.duration - 0.002); // 2ms overlap for seamless piping
+            
+            // Meter logic
+            let sum = 0; for(let i=0; i<data.length; i++) sum += Math.abs(data[i]);
             document.getElementById('fill').style.width = Math.min(100, (sum/data.length)*1500) + "%";
         }
 
         const ptt = document.getElementById('ptt');
         ptt.onmousedown = ptt.ontouchstart = (e) => { e.preventDefault(); isTalking = true; audioCtx.resume(); };
-        ptt.onmouseup = ptt.ontouchend = () => { isTalking = false; };
+        ptt.onmouseup = ptt.ontouchend = () => { isTalking = false; scheduledTime = 0; };
         window.onclick = () => { if(audioCtx) audioCtx.resume(); };
     </script>
 </body>
