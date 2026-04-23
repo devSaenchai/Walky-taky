@@ -34,9 +34,9 @@
     <div class="lcd-frame">
         <div class="lcd-screen">
             <div class="header"><span id="status">OFFLINE</span><span>STRM: 10-SLOT</span></div>
-            <div id="log">10-PIPE BUFFER READY...<br>PRESS POWER TO SYNC.</div>
+            <div id="log">SYSTEM READY...<br>PRESS POWER TO START.</div>
             <div class="meter"><div id="fill"></div></div>
-            <div class="branding">SAENCHAI WALK-TAKY V2.0</div>
+            <div class="branding">SAENCHAI WALK-TAKY V2.1</div>
         </div>
     </div>
     <div class="controls"><button id="ptt" disabled>PUSH</button></div>
@@ -52,7 +52,7 @@
         projectId: "walky-taky-6b118"
     };
     firebase.initializeApp(config);
-    const db = firebase.database().ref('walkytaky_v2');
+    const db = firebase.database().ref('walkytaky_saenchai_v3');
     
     let audioCtx, isTalking = false, nextStartTime = 0, writeIdx = 0, lastReadSeq = -1;
     const ptt = document.getElementById('ptt');
@@ -75,9 +75,11 @@
 
     async function boot() {
         document.getElementById('pwr').style.display = 'none';
-        addLog("Syncing 10 Data Pipes...");
+        addLog("Initializing Audio Engine...");
         try {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
             const source = audioCtx.createMediaStreamSource(stream);
             const processor = audioCtx.createScriptProcessor(2048, 1, 1);
@@ -90,7 +92,6 @@
                     const p = new Int16Array(input.length);
                     for(let i=0; i<input.length; i++) p[i] = input[i] * 0x7FFF;
                     
-                    // CYCLE WRITING: Prevents database overwrite lag
                     db.child('s' + (writeIdx % 10)).set({
                         s: writeIdx,
                         d: btoa(String.fromCharCode(...new Uint16Array(p.buffer)))
@@ -99,35 +100,34 @@
                 }
             };
 
-            // Listener for all 10 slots simultaneously
-            for(let i=0; i<10; i++) {
-                db.child('s' + i).on('value', (snap) => {
-                    const val = snap.val();
-                    if (val && !isTalking && val.s > lastReadSeq) {
-                        lastReadSeq = val.s;
-                        const bin = atob(val.d);
+            // Enhanced Listener Logic from your working files
+            db.on('value', (snap) => {
+                const val = snap.val();
+                if (!val) return;
+
+                // Collision Lock
+                if (val.lock && val.lock !== audioCtx.baseLatency) {
+                    ptt.disabled = true;
+                    document.getElementById('status').innerText = "BUSY";
+                } else {
+                    ptt.disabled = false;
+                    document.getElementById('status').innerText = "READY";
+                }
+
+                // Check all 10 slots for the newest sequence
+                for(let i=0; i<10; i++) {
+                    const slot = val['s' + i];
+                    if (slot && !isTalking && slot.s > lastReadSeq) {
+                        lastReadSeq = slot.s;
+                        const bin = atob(slot.d);
                         const uint = new Uint16Array(bin.length);
                         for(let j=0; j<bin.length; j++) uint[j] = bin.charCodeAt(j);
                         play(new Float32Array(new Int16Array(uint.buffer)).map(v => v/0x7FFF));
                     }
-                });
-            }
-
-            // Global Lock Listener
-            db.child('lock').on('value', (snap) => {
-                const locker = snap.val();
-                if (locker && locker !== audioCtx.baseLatency) {
-                    ptt.disabled = true;
-                    document.getElementById('status').innerText = "INCOMING";
-                    document.getElementById('status').classList.add('blink');
-                } else {
-                    ptt.disabled = false;
-                    document.getElementById('status').innerText = "READY";
-                    document.getElementById('status').classList.remove('blink');
                 }
             });
 
-            addLog("Pipes Active. System Clear.");
+            addLog("Link Secure. Channels Open.");
         } catch (err) { addLog("Critical: Mic Error"); }
     }
 
@@ -137,8 +137,7 @@
         const s = audioCtx.createBufferSource();
         s.buffer = b; s.connect(audioCtx.destination);
         const now = audioCtx.currentTime;
-        // Jitter Buffer: Keeps playback smooth even on Jio/4G
-        if (nextStartTime < now) nextStartTime = now + 0.12;
+        if (nextStartTime < now) nextStartTime = now + 0.15; // Increased buffer for stability
         s.start(nextStartTime);
         nextStartTime += b.duration;
         
@@ -150,8 +149,8 @@
         e.preventDefault();
         if (ptt.disabled || isTalking) return;
         isTalking = true;
-        writeIdx = 0; // Reset sequence for new burst
-        beep(1200, 0.05);
+        writeIdx = 0; 
+        beep(1000, 0.05);
         db.child('lock').set(audioCtx.baseLatency);
         addLog(">>> TRANSMITTING");
     };
@@ -161,7 +160,7 @@
         setTimeout(() => {
             isTalking = false;
             db.child('lock').remove();
-            beep(700, 0.08);
+            beep(500, 0.08);
             addLog("<<< TX ENDED");
         }, 300);
     };
