@@ -3,36 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Echo1 Ultra-Link</title>
+    <title>Echo1 Global</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
-        body { background: #121212; color: #0f0; font-family: monospace; text-align: center; padding: 20px; }
-        .radio-box { border: 2px solid #333; border-radius: 20px; padding: 20px; background: #1a1a1a; display: inline-block; width: 90%; max-width: 300px; }
-        #ptt-btn { width: 160px; height: 160px; border-radius: 50%; background: #333; border: 5px solid #222; color: white; font-weight: bold; margin-top: 30px; display: none; box-shadow: 0 6px 0 #000; }
-        #ptt-btn:active { background: #f00; transform: translateY(4px); box-shadow: 0 2px 0 #000; }
-        .pwr-on { background: #0f0; color: #000; padding: 15px 30px; border-radius: 50px; font-weight: bold; border: none; }
-        .status-led { width: 10px; height: 10px; border-radius: 50%; background: #300; display: inline-block; margin-right: 10px; }
-        .led-active { background: #f00; box-shadow: 0 0 10px #f00; }
+        :root { --radio-green: #94ad94; --radio-dark: #1a1a1a; }
+        body { background: var(--radio-dark); color: #fff; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; touch-action: none; overflow: hidden; }
+        .radio-body { background: #333; width: 300px; padding: 25px; border-radius: 40px; border: 4px solid #222; text-align: center; }
+        .screen { background: var(--radio-green); color: #1a1a1a; padding: 10px; border-radius: 10px; font-weight: bold; margin-bottom: 15px; border: 4px inset rgba(0,0,0,0.2); min-height: 180px; display: flex; flex-direction: column; }
+        #log-window { flex-grow: 1; font-size: 0.6rem; text-align: left; overflow-y: auto; background: rgba(0,0,0,0.05); padding: 5px; margin-top: 5px; max-height: 90px; line-height: 1.2; }
+        #timer { font-size: 1.4rem; margin: 5px 0; letter-spacing: 2px; }
+        #ptt-btn { width: 140px; height: 140px; border-radius: 50%; border: 8px solid #222; background: radial-gradient(#555, #222); color: white; font-weight: bold; outline: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 5px 0 #111; user-select: none; transition: 0.1s; }
+        #ptt-btn.active { background: radial-gradient(#f22, #800); transform: translateY(3px); box-shadow: 0 2px 0 #111; }
+        .btn-pwr { background: #0f0; color: #000; border: none; padding: 15px 30px; border-radius: 50px; cursor: pointer; font-weight: bold; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
 
-    <div class="radio-box">
-        <div style="font-size: 0.8rem; color: #888; margin-bottom: 10px;">WALKY-TAKY v4.0</div>
-        <div id="stat-text">HARDWARE STANDBY</div>
-        <div id="peer-val" style="font-size: 0.7rem;">PEERS: 0</div>
+    <div class="radio-body">
+        <button id="start-btn" class="btn-pwr">INITIATE GLOBAL LINK</button>
         
-        <button id="start-pwr" class="pwr-on" style="margin-top: 20px;">SYSTEM POWER ON</button>
-        
-        <div id="controls" style="display:none;">
-            <div id="led" class="status-led"></div>
-            <button id="ptt-btn">PUSH TO TALK</button>
+        <div id="ui-container" class="hidden">
+            <div class="screen">
+                <div style="font-size: 0.7rem; display: flex; justify-content: space-between;">
+                    <span id="status">OFFLINE</span>
+                    <span>PEERS: <span id="peer-count">0</span></span>
+                </div>
+                <div id="timer">00:00</div>
+                <div id="log-window"></div>
+            </div>
+            <button id="ptt-btn" class="hidden">HOLD TO TALK</button>
+            <p id="hint" style="font-size: 0.6rem; color: #888; margin-top: 10px;">Establishing Mobile Tunnel...</p>
         </div>
     </div>
 
     <script>
+        // Use your verified Firebase Config
         const firebaseConfig = {
           apiKey: "AIzaSyBRZ_E78l5EDRAgyHvE81aZAg9XWZySNrE",
           authDomain: "walky-taky-6b118.firebaseapp.com",
@@ -44,94 +52,113 @@
         };
 
         firebase.initializeApp(firebaseConfig);
-        const db = firebase.database().ref('radio_v4');
-        let myPeer, myStream, audioCtx;
-        const activeCalls = new Map();
+        const db = firebase.database().ref('radio_global_v6');
+        let myPeer, myStream, audioCtx, startTime;
+        let connectedPeers = new Set();
 
-        document.getElementById('start-pwr').onclick = async () => {
+        function addLog(msg) {
+            const log = document.getElementById('log-window');
+            log.innerHTML += `> ${msg}<br>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateTimer() {
+            if (!startTime) return;
+            const diff = Math.floor((new Date() - startTime) / 1000);
+            const m = Math.floor(diff / 60).toString().padStart(2, '0');
+            const s = (diff % 60).toString().padStart(2, '0');
+            document.getElementById('timer').innerText = `${m}:${s}`;
+            if (connectedPeers.size === 0) requestAnimationFrame(updateTimer);
+        }
+
+        document.getElementById('start-btn').onclick = async function() {
+            this.classList.add('hidden');
+            document.getElementById('ui-container').classList.remove('hidden');
+            startTime = new Date();
+            updateTimer();
+            addLog("Waking Hardware...");
+
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 myStream.getAudioTracks()[0].enabled = false;
+                addLog("Mic: OK");
 
-                document.getElementById('start-pwr').style.display = 'none';
-                document.getElementById('controls').style.display = 'block';
-                document.getElementById('ptt-btn').style.display = 'block';
-                document.getElementById('stat-text').innerText = "CONNECTING NETWORK...";
+                // THE CARRIER FIX: Enhanced STUN/TURN Configuration
+                myPeer = new Peer({
+                    config: {
+                        'iceServers': [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { urls: 'stun:stun2.l.google.com:19302' },
+                            { urls: 'stun:openrelay.metered.ca:80' } // Port 80 often bypasses mobile firewalls
+                        ],
+                        'iceTransportPolicy': 'all'
+                    }
+                });
 
-                startPeer();
-            } catch (e) { alert("Mic Permission Denied"); }
-        };
+                myPeer.on('open', (id) => {
+                    addLog("Firebase Registry...");
+                    const myRef = db.push(id);
+                    myRef.onDisconnect().remove();
+                    addLog("Waiting for Mobile Handshake...");
 
-        function startPeer() {
-            // FIX: Using Google's STUN servers to bypass Firewalls/NAT
-            myPeer = new Peer({
-                config: {
-                    'iceServers': [
-                        { url: 'stun:stun.l.google.com:19302' },
-                        { url: 'stun:stun1.l.google.com:19302' }
-                    ]
-                }
-            });
-
-            myPeer.on('open', (id) => {
-                document.getElementById('stat-text').innerText = "ONLINE / READY";
-                const myRef = db.push(id);
-                myRef.onDisconnect().remove();
-
-                // Heartbeat to keep connection alive on mobile
-                setInterval(() => { if(myPeer) myPeer.socket.send({type: 'HEARTBEAT'}); }, 5000);
-
-                db.on('value', snap => {
-                    const ids = snap.val() ? Object.values(snap.val()) : [];
-                    document.getElementById('peer-val').innerText = "PEERS: " + (ids.length - 1);
-                    ids.forEach(tid => {
-                        if(tid !== id && !activeCalls.has(tid)) {
-                            const call = myPeer.call(tid, myStream);
-                            call.on('stream', s => playRemote(s, tid));
-                            activeCalls.set(tid, call);
-                        }
+                    db.on('value', snap => {
+                        const ids = snap.val() ? Object.values(snap.val()) : [];
+                        document.getElementById('peer-count').innerText = Math.max(0, ids.length - 1);
+                        ids.forEach(tid => {
+                            if (tid !== id && !connectedPeers.has(tid)) {
+                                addLog(`Dialing Carrier Tunnel: ${tid.substring(0,4)}`);
+                                const call = myPeer.call(tid, myStream);
+                                call.on('stream', s => finalize(s, tid));
+                                call.on('error', e => addLog("Link Failed: Network NAT"));
+                            }
+                        });
                     });
                 });
-            });
 
-            myPeer.on('call', c => {
-                c.answer(myStream);
-                c.on('stream', s => playRemote(s, c.peer));
-            });
-        }
+                myPeer.on('call', call => {
+                    addLog("Incoming Mobile Request...");
+                    call.answer(myStream);
+                    call.on('stream', s => finalize(s, call.peer));
+                });
 
-        function playRemote(stream, id) {
+            } catch (e) { addLog("Error: Mic Denied"); }
+        };
+
+        function finalize(stream, id) {
+            if (connectedPeers.has(id)) return;
+            connectedPeers.add(id);
+            
             const audio = new Audio();
             audio.srcObject = stream;
-            audio.play().catch(() => {
-                document.getElementById('stat-text').innerText = "TAP TO UNMUTE";
-            });
+            audio.play();
+
+            addLog("GLOBAL TUNNEL: ESTABLISHED");
+            document.getElementById('status').innerText = "LINKED";
+            document.getElementById('status').style.color = "blue";
+            document.getElementById('ptt-btn').classList.remove('hidden');
+            document.getElementById('hint').innerText = "MOBILE DATA LINK ACTIVE";
         }
 
         const ptt = document.getElementById('ptt-btn');
-        const led = document.getElementById('led');
-
-        const talk = (e) => {
+        const startTx = (e) => {
             if(e) e.preventDefault();
             if(audioCtx.state === 'suspended') audioCtx.resume();
             if(myStream) myStream.getAudioTracks()[0].enabled = true;
-            led.classList.add('led-active');
-            document.getElementById('stat-text').innerText = "TRANSMITTING...";
+            ptt.classList.add('active');
+            document.getElementById('status').innerText = "TRANSMIT";
         };
-
-        const stop = () => {
+        const stopTx = () => {
             if(myStream) myStream.getAudioTracks()[0].enabled = false;
-            led.classList.remove('led-active');
-            document.getElementById('stat-text').innerText = "ONLINE / READY";
+            ptt.classList.remove('active');
+            document.getElementById('status').innerText = "LINKED";
         };
 
-        ptt.addEventListener('touchstart', talk);
-        ptt.addEventListener('touchend', stop);
-        ptt.addEventListener('mousedown', talk);
-        ptt.addEventListener('mouseup', stop);
-        // Safety: Global unmute
-        window.onclick = () => { if(audioCtx) audioCtx.resume(); };
+        ptt.addEventListener('touchstart', startTx);
+        ptt.addEventListener('touchend', stopTx);
+        ptt.addEventListener('mousedown', startTx);
+        ptt.addEventListener('mouseup', stopTx);
     </script>
 </body>
 </html>
