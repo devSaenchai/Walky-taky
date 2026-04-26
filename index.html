@@ -9,107 +9,19 @@
     <style>
         :root { --radio-body: #1e1e1e; --screen-bg: #8ba870; --accent: #ffcc00; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        
-        /* Fix for Notch and Navbar overlaps */
-        html, body { 
-            height: 100%; 
-            margin: 0; 
-            padding: 0; 
-            background: #000; 
-            overflow: hidden; 
-        }
-
-        body { 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            font-family: 'Courier New', monospace;
-            /* Safe area padding for iPhone/Android */
-            padding-top: env(safe-area-inset-top);
-            padding-bottom: env(safe-area-inset-bottom);
-        }
-
-        .walkie-talkie { 
-            background: var(--radio-body); 
-            width: 100%; 
-            max-width: 400px; 
-            height: 100%; /* Uses 100% of the available safe area */
-            padding: 20px; 
-            display: flex; 
-            flex-direction: column; 
-            position: relative; 
-            border-left: 8px solid #111;
-            border-right: 8px solid #111;
-        }
-
-        /* Simplified antenna to stay within screen bounds */
+        html, body { height: 100%; margin: 0; padding: 0; background: #000; overflow: hidden; }
+        body { display: flex; align-items: center; justify-content: center; font-family: 'Courier New', monospace; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+        .walkie-talkie { background: var(--radio-body); width: 100%; max-width: 400px; height: 100%; padding: 20px; display: flex; flex-direction: column; position: relative; border-left: 8px solid #111; border-right: 8px solid #111; }
         .antenna-nub { width: 40px; height: 15px; background: #111; margin: -20px auto 10px auto; border-radius: 5px 5px 0 0; }
-
-        .lcd-frame { 
-            background: #000; 
-            padding: 8px; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 0 #333; 
-        }
-
-        .lcd-screen { 
-            background: var(--screen-bg); 
-            color: #050505; 
-            padding: 10px; 
-            height: 220px; 
-            display: flex; 
-            flex-direction: column; 
-            border: 4px inset rgba(0,0,0,0.5); 
-        }
-
-        .header { 
-            font-size: 0.7rem; 
-            font-weight: 900; 
-            border-bottom: 2px solid rgba(0,0,0,0.3); 
-            padding-bottom: 5px; 
-            display: flex; 
-            justify-content: space-between; 
-        }
-
-        #log { 
-            font-size: 0.65rem; 
-            flex-grow: 1; 
-            overflow-y: auto; 
-            margin: 8px 0; 
-            scrollbar-width: thin; 
-        }
-
+        .lcd-frame { background: #000; padding: 8px; border-radius: 12px; box-shadow: 0 4px 0 #333; }
+        .lcd-screen { background: var(--screen-bg); color: #050505; padding: 10px; height: 220px; display: flex; flex-direction: column; border: 4px inset rgba(0,0,0,0.5); }
+        .header { font-size: 0.7rem; font-weight: 900; border-bottom: 2px solid rgba(0,0,0,0.3); padding-bottom: 5px; display: flex; justify-content: space-between; }
+        #log { font-size: 0.65rem; flex-grow: 1; overflow-y: auto; margin: 8px 0; scrollbar-width: thin; }
         .branding { font-size: 0.55rem; text-align: center; font-weight: 900; letter-spacing: 1px; }
-
-        .controls { 
-            flex-grow: 1; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: center; 
-            align-items: center; 
-        }
-
-        #ptt { 
-            width: 180px; 
-            height: 180px; 
-            border-radius: 50%; 
-            border: 12px solid #000; 
-            background: radial-gradient(#444, #222); 
-            color: white; 
-            font-weight: 900; 
-            font-size: 1.4rem; 
-            box-shadow: 0 10px 0 #000; 
-            transition: 0.05s; 
-        }
-
-        #ptt:active:not(:disabled) { 
-            transform: translateY(6px); 
-            box-shadow: 0 4px 0 #000; 
-            background: radial-gradient(#f00, #900); 
-        }
-
+        .controls { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        #ptt { width: 180px; height: 180px; border-radius: 50%; border: 12px solid #000; background: radial-gradient(#444, #222); color: white; font-weight: 900; font-size: 1.4rem; box-shadow: 0 10px 0 #000; transition: 0.05s; }
+        #ptt:active:not(:disabled) { transform: translateY(6px); box-shadow: 0 4px 0 #000; background: radial-gradient(#f00, #900); }
         #ptt:disabled { filter: grayscale(1); opacity: 0.3; }
-
         .meter { height: 8px; background: rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden; margin-bottom: 5px; }
         #fill { height: 100%; width: 0%; background: #000; transition: width 0.05s; }
         .blink { animation: flash 1s infinite; }
@@ -126,17 +38,15 @@
                 <span id="status">OFFLINE</span>
                 <span>SAFE-UI</span>
             </div>
-            <div id="log">SCREEN BOUNDS CHECK...<br>READY.</div>
+            <div id="log">SYSTEM READY.<br>PRESS POWER TO SYNC.</div>
             <div class="meter"><div id="fill"></div></div>
             <div class="branding">WALKY-TAKY BY SAENCHAI</div>
         </div>
     </div>
-
     <div class="controls">
         <button id="ptt" disabled>PTT</button>
         <p style="font-size: 0.6rem; color: #555; margin-top: 15px;">FULL SCREEN ACTIVE</p>
     </div>
-    
     <div style="text-align: center; padding-bottom: 10px;">
         <button id="pwr" style="background:var(--accent); border:none; padding:15px 30px; border-radius:10px; font-weight:bold; width: 80%;" onclick="boot()">POWER ON</button>
     </div>
@@ -161,6 +71,7 @@
     }
 
     function beep(freq, duration) {
+        if(!audioCtx) return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain); gain.connect(audioCtx.destination);
@@ -171,7 +82,11 @@
 
     async function boot() {
         document.getElementById('pwr').style.display = 'none';
-        addLog("Syncing Viewport...");
+        addLog("Initializing Network...");
+
+        // FIX: Force a write to ensure the database exists in the console
+        db.update({ last_boot: Date.now() });
+
         try {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
@@ -193,7 +108,13 @@
 
             db.on('value', (snap) => {
                 const val = snap.val();
-                if (!val) return;
+                
+                // FIX: If database is deleted/empty, enable PTT so we can recreate it
+                if (!val) {
+                    ptt.disabled = false;
+                    document.getElementById('status').innerText = "READY";
+                    return;
+                }
 
                 if (val.lockedBy && val.lockedBy !== audioCtx.baseLatency) {
                     ptt.disabled = true;
@@ -212,7 +133,10 @@
             });
 
             addLog("Frequency Locked.");
-        } catch (err) { addLog("Error: Mic Denied"); }
+        } catch (err) { 
+            addLog("Error: Mic Denied"); 
+            console.error(err);
+        }
     }
 
     function play(data) {
@@ -230,7 +154,7 @@
     }
 
     ptt.onmousedown = ptt.ontouchstart = (e) => {
-        e.preventDefault();
+        if (e.type === 'touchstart') e.preventDefault();
         if (ptt.disabled) return;
         isTalking = true;
         beep(880, 0.1); 
