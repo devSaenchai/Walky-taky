@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Walky-Taky</title>
+    <title>Walky-Taky | by Saenchai</title>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    
     <style>
         :root { --radio-body: #1e1e1e; --screen-bg: #8ba870; --accent: #ffcc00; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -45,23 +46,16 @@
     </div>
     <div class="controls">
         <button id="ptt" disabled>PTT</button>
-        <p style="font-size: 0.6rem; color: #555; margin-top: 15px;">FULL SCREEN ACTIVE</p>
+        <p style="font-size: 0.6rem; color: #555; margin-top: 15px;">FULL-DUPLEX SIMULATION</p>
     </div>
     <div style="text-align: center; padding-bottom: 10px;">
         <button id="pwr" style="background:var(--accent); border:none; padding:15px 30px; border-radius:10px; font-weight:bold; width: 80%;" onclick="boot()">POWER ON</button>
     </div>
 </div>
 
+<script src="firebase-config.js"></script>
+
 <script>
-    const config = {
-        apiKey: "AIzaSyBRZ_E78l5EDRAgyHvE81aZAg9XWZySNrE",
-        databaseURL: "https://walky-taky-6b118-default-rtdb.firebaseio.com",
-        projectId: "walky-taky-6b118"
-    };
-    firebase.initializeApp(config);
-    const db = firebase.database().ref('walkytaky_saenchai');
-    const presenceRef = db.child('presence');
-    
     let audioCtx, isTalking = false, currentSlice = [], nextStartTime = 0;
     const ptt = document.getElementById('ptt');
     const logBox = document.getElementById('log');
@@ -83,7 +77,10 @@
 
     async function boot() {
         document.getElementById('pwr').style.display = 'none';
-        addLog("Initializing Network...");
+        addLog("Syncing Frequency...");
+
+        // Ensure table exists
+        db.update({ last_sync: Date.now() });
 
         try {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -93,21 +90,15 @@
             
             source.connect(processor); processor.connect(audioCtx.destination);
 
-            // --- PRESENCE SYSTEM ---
-            // Create a unique ID for this session
+            // User Presence
             const myPresence = presenceRef.push();
-            
-            // 1. When connected, set presence to true
-            // 2. Use onDisconnect to remove this record if we leave
             myPresence.onDisconnect().remove();
             myPresence.set(true);
 
-            // Listen for changes in the 'presence' folder to count users
             presenceRef.on('value', (snap) => {
                 const count = snap.numChildren();
                 document.getElementById('online-count').innerText = `USERS: ${count}`;
             });
-            // -----------------------
 
             processor.onaudioprocess = (e) => {
                 if (isTalking) {
