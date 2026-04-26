@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Walky-Taky | by Saenchai</title>
+    <title>Walky-Taky</title>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <style>
@@ -36,7 +36,7 @@
         <div class="lcd-screen">
             <div class="header">
                 <span id="status">OFFLINE</span>
-                <span>SAFE-UI</span>
+                <span id="online-count">USERS: 0</span>
             </div>
             <div id="log">SYSTEM READY.<br>PRESS POWER TO SYNC.</div>
             <div class="meter"><div id="fill"></div></div>
@@ -60,6 +60,7 @@
     };
     firebase.initializeApp(config);
     const db = firebase.database().ref('walkytaky_saenchai');
+    const presenceRef = db.child('presence');
     
     let audioCtx, isTalking = false, currentSlice = [], nextStartTime = 0;
     const ptt = document.getElementById('ptt');
@@ -84,9 +85,6 @@
         document.getElementById('pwr').style.display = 'none';
         addLog("Initializing Network...");
 
-        // FIX: Force a write to ensure the database exists in the console
-        db.update({ last_boot: Date.now() });
-
         try {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
@@ -94,6 +92,22 @@
             const processor = audioCtx.createScriptProcessor(2048, 1, 1);
             
             source.connect(processor); processor.connect(audioCtx.destination);
+
+            // --- PRESENCE SYSTEM ---
+            // Create a unique ID for this session
+            const myPresence = presenceRef.push();
+            
+            // 1. When connected, set presence to true
+            // 2. Use onDisconnect to remove this record if we leave
+            myPresence.onDisconnect().remove();
+            myPresence.set(true);
+
+            // Listen for changes in the 'presence' folder to count users
+            presenceRef.on('value', (snap) => {
+                const count = snap.numChildren();
+                document.getElementById('online-count').innerText = `USERS: ${count}`;
+            });
+            // -----------------------
 
             processor.onaudioprocess = (e) => {
                 if (isTalking) {
@@ -108,8 +122,6 @@
 
             db.on('value', (snap) => {
                 const val = snap.val();
-                
-                // FIX: If database is deleted/empty, enable PTT so we can recreate it
                 if (!val) {
                     ptt.disabled = false;
                     document.getElementById('status').innerText = "READY";
